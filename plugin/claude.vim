@@ -48,24 +48,24 @@ endfunction
 function! s:ApplyCodeChangesDiff(start_line, end_line, changes)
   let l:original_bufnr = bufnr('%')
   let l:original_content = getline(1, '$')
-  
+
   rightbelow vnew
   setlocal buftype=nofile
-  
+
   call setline(1, l:original_content)
-  
+
   execute a:start_line . ',' . a:end_line . 'delete _'
   call append(a:start_line - 1, split(a:changes, "\n"))
-  
+
   diffthis
-  
+
   execute 'wincmd h'
   diffthis
-  
+
   execute 'normal! ' . a:start_line . 'G'
-  
+
   echomsg "Apply diff, see :help diffget. Close diff buffer with :q."
-  
+
   augroup ClaudeDiff
     autocmd!
     autocmd BufWinLeave <buffer> diffoff!
@@ -78,7 +78,7 @@ endfunction
 function! s:ClaudeImplement(line1, line2, instruction) range
   " Get the selected code
   let l:selected_code = join(getline(a:line1, a:line2), "\n")
-  
+
   " Prepare the prompt for code implementation
   let l:prompt = "Here's the original code:\n\n" . l:selected_code . "\n\n"
   let l:prompt .= "Instruction: " . a:instruction . "\n\n"
@@ -113,18 +113,18 @@ endfunction
 
 function! s:OpenClaudeChat()
   let l:claude_bufnr = bufnr('Claude Chat')
-  
+
   if l:claude_bufnr == -1
     execute 'botright new Claude Chat'
     setlocal buftype=nofile
     setlocal bufhidden=hide
     setlocal noswapfile
     setlocal linebreak
-    
+
     setlocal foldmethod=expr
     setlocal foldexpr=GetChatFold(v:lnum)
     setlocal foldlevel=1
-    
+
     call setline(1, ['System prompt: You are a pair programmer focused on concise, content-centric interactions.',
           \ "\tMirror the user\'s communication style, no yapping.",
           \ "\tEschew surplusage, no thank-yous and apologies!",
@@ -132,10 +132,10 @@ function! s:OpenClaudeChat()
           \ 'Type your messages below, pres C-] to send.  (Content of all :buffers is shared alongside!)',
           \ '',
           \ 'You: '])
-    
+
     " Fold the system prompt
     normal! 1Gzc
-    
+
     augroup ClaudeChat
       autocmd!
       autocmd BufWinEnter <buffer> call s:GoToLastYouLine()
@@ -250,9 +250,9 @@ function! s:ClaudeQueryChat(messages, system_prompt)
     \ 'messages': a:messages,
     \ 'system': a:system_prompt
     \ }
-  
+
   let l:json_data = json_encode(l:data)
-  
+
   let l:cmd = 'curl -s -X POST ' .
     \ '-H "Content-Type: application/json" ' .
     \ '-H "x-api-key: ' . g:claude_api_key . '" ' .
@@ -273,37 +273,28 @@ function! s:ClaudeQueryChat(messages, system_prompt)
 endfunction
 
 function! s:ClosePreviousFold()
-"   " Save the current position
-"   let l:save_cursor = getpos(".")
-"   
-"   " Move to the PREVIOUS fold and close it
-"   normal! [zk[zzc
-"   
-"   " Restore the cursor position
-"   call setpos('.', l:save_cursor)
-
   let l:save_cursor = getpos(".")
-  
+
   normal! G[zk[zzc
-  
+
   if foldclosed('.') == -1
     echom "Warning: Failed to close previous fold at line " . line('.')
   endif
-  
+
   call setpos('.', l:save_cursor)
 endfunction
 
 function! s:SendChatMessage()
   let [l:messages, l:system_prompt] = s:ParseBufferContent()
   let l:buffer_contents = s:GetBufferContents()
-  
+
   let l:system_prompt .= "\n\nContents of open buffers:\n\n"
   for buffer in l:buffer_contents
     let l:system_prompt .= "============================\n"
     let l:system_prompt .= "Buffer: " . buffer.name . "\n"
     let l:system_prompt .= "Contents:\n" . buffer.contents . "\n\n"
   endfor
-  
+
   let l:response = s:ClaudeQueryChat(l:messages, l:system_prompt)
   call s:AppendResponse(l:response)
   call s:ClosePreviousFold()
