@@ -118,6 +118,14 @@ vnoremap <Leader>ci :ClaudeImplement<Space>
 
 """""""""""""""""""""""""""""""""""""
 
+function! s:GetClaudeIndent()
+  if &expandtab
+    return repeat(' ', &shiftwidth)
+  else
+    return repeat("\t", (&shiftwidth + &tabstop - 1) / &tabstop)
+  endif
+endfunction
+
 function! GetChatFold(lnum)
   let l:line = getline(a:lnum)
   if l:line =~ '^You:' || l:line =~ '^System prompt:'
@@ -129,10 +137,35 @@ function! GetChatFold(lnum)
   endif
 endfunction
 
+function! s:SetupClaudeChatSyntax()
+  if exists("b:current_syntax")
+    return
+  endif
+
+  syntax include @markdown syntax/markdown.vim
+
+  syntax region claudeChatSystem start=/^System prompt:/ end=/^\S/me=s-1 contains=claudeChatSystemKeyword
+  syntax match claudeChatSystemKeyword /^System prompt:/ contained
+  syntax match claudeChatYou /^You:/
+  syntax match claudeChatClaude /^Claude:/
+  syntax region claudeChatClaudeContent start=/^Claude:/ end=/^\S/me=s-1 contains=claudeChatClaude,@markdown
+
+  " Don't make everything a code block; FIXME this works satisfactorily
+  " only for inline markdown pieces
+  syntax clear markdownCodeBlock
+
+  highlight default link claudeChatSystem Comment
+  highlight default link claudeChatSystemKeyword Keyword
+  highlight default link claudeChatYou Keyword
+  highlight default link claudeChatClaude Keyword
+
+  let b:current_syntax = "claudechat"
+endfunction
+
 function! s:OpenClaudeChat()
   let l:claude_bufnr = bufnr('Claude Chat')
 
-  if l:claude_bufnr == -1
+  if l:claude_bufnr == -1 || !bufloaded(l:claude_bufnr)
     execute 'botright new Claude Chat'
     setlocal buftype=nofile
     setlocal bufhidden=hide
@@ -142,6 +175,8 @@ function! s:OpenClaudeChat()
     setlocal foldmethod=expr
     setlocal foldexpr=GetChatFold(v:lnum)
     setlocal foldlevel=1
+
+    call s:SetupClaudeChatSyntax()
 
     call setline(1, ['System prompt: You are a pair programmer focused on concise, content-centric interactions.',
           \ "\tMirror the user\'s communication style, no yapping.",
@@ -249,7 +284,7 @@ function! s:AppendResponse(response)
     call append('$', 'Claude: ' . l:response_lines[0])
   else
     call append('$', 'Claude:')
-    let l:indent = &expandtab ? repeat(' ', &shiftwidth) : repeat("\t", (&shiftwidth + &tabstop - 1) / &tabstop)
+    let l:indent = s:GetClaudeIndent()
     call append('$', map(l:response_lines, {_, v -> v =~ '^\s*$' ? '' : l:indent . v}))
   endif
 endfunction
