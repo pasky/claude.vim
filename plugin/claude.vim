@@ -74,51 +74,6 @@ endfunction
 
 """""""""""""""""""""""""""""""""""""
 
-" Function to prompt user and display Claude's response
-function! Claude()
-  " Get user input
-  let l:prompt = input('Ask Claude: ')
-
-  " Query Claude
-  let l:response = s:ClaudeQuery(l:prompt)
-
-  " Display response in a new buffer
-  new
-  setlocal buftype=nofile
-  setlocal bufhidden=hide
-  setlocal noswapfile
-  call append(0, split(l:response, "\n"))
-
-  " Set buffer name
-  execute 'file' 'Claude_Response_' . strftime("%Y%m%d_%H%M%S")
-endfunction
-
-" Command to trigger Claude interaction
-command! Claude call Claude()
-
-"""""""""""""""""""""""""""""""""""""
-
-" Function to complete code based on previous content
-function! ClaudeComplete()
-  " Get the current buffer content
-  let l:buffer_content = join(getline(1, '$'), "\n")
-
-  " Prepare the prompt for code completion
-  let l:prompt = "Complete the following code. Only provide the completion, do not repeat any existing code or add any explanations:\n\n" . l:buffer_content
-
-  " Query Claude
-  let l:completion = s:ClaudeQuery(l:prompt)
-
-  " Append the completion to the current buffer
-  call append(line('$'), split(l:completion, "\n"))
-endfunction
-
-" Command for code completion
-command! ClaudeComplete call ClaudeComplete()
-nnoremap <Leader>cc :ClaudeComplete<CR>
-
-"""""""""""""""""""""""""""""""""""""
-
 " Function to implement code based on instructions
 function! s:ClaudeImplement(line1, line2, instruction) range
   " Get the selected code
@@ -174,7 +129,7 @@ function! s:OpenClaudeChat()
           \ "\tMirror the user\'s communication style, no yapping.",
           \ "\tEschew surplusage, no thank-yous and apologies!",
           \ "\tOutline & draft your approach before suggesting code, but explain your proposal only when explicitly asked.",
-          \ 'Type your messages below, pres C-] to send.  Use :q to close this window.',
+          \ 'Type your messages below, pres C-] to send.  (Content of all :buffers is shared alongside!)',
           \ '',
           \ 'You: '])
     
