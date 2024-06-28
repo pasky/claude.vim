@@ -68,6 +68,7 @@ function! s:ApplyCodeChangesDiff(start_line, end_line, changes)
 
   rightbelow vnew
   setlocal buftype=nofile
+  let &filetype = getbufvar(l:original_bufnr, '&filetype')
 
   call setline(1, l:original_content)
 
