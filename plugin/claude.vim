@@ -18,12 +18,25 @@ endif
 
 " Function to send a prompt to Claude and get a response
 function! s:ClaudeQuery(prompt)
+  let l:messages = [{'role': 'user', 'content': a:prompt}]
+  return s:ClaudeQueryInternal(l:messages, '')
+endfunction
+
+function! s:ClaudeQueryChat(messages, system_prompt)
+  return s:ClaudeQueryInternal(a:messages, a:system_prompt)
+endfunction
+
+function! s:ClaudeQueryInternal(messages, system_prompt)
   " Prepare the API request
   let l:data = {
     \ 'model': g:claude_model,
     \ 'max_tokens': 1024,
-    \ 'messages': [{'role': 'user', 'content': a:prompt}]
+    \ 'messages': a:messages
     \ }
+
+  if !empty(a:system_prompt)
+    let l:data['system'] = a:system_prompt
+  endif
 
   " Convert data to JSON
   let l:json_data = json_encode(l:data)
@@ -41,7 +54,11 @@ function! s:ClaudeQuery(prompt)
   " Parse the JSON response
   let l:response = json_decode(l:result)
 
-  " Extract and return Claude's reply
+  if !has_key(l:response, 'content')
+    echoerr "Key 'content' not present in response: " . l:result
+    return ""
+  endif
+
   return l:response['content'][0]['text']
 endfunction
 
@@ -241,35 +258,6 @@ function! s:GetBufferContents()
     endif
   endfor
   return l:buffers
-endfunction
-
-function! s:ClaudeQueryChat(messages, system_prompt)
-  let l:data = {
-    \ 'model': g:claude_model,
-    \ 'max_tokens': 1024,
-    \ 'messages': a:messages,
-    \ 'system': a:system_prompt
-    \ }
-
-  let l:json_data = json_encode(l:data)
-
-  let l:cmd = 'curl -s -X POST ' .
-    \ '-H "Content-Type: application/json" ' .
-    \ '-H "x-api-key: ' . g:claude_api_key . '" ' .
-    \ '-H "anthropic-version: 2023-06-01" ' .
-    \ '-d ' . shellescape(l:json_data) . ' ' . g:claude_api_url
-
-  let l:result = system(l:cmd)
-
-  " Parse the JSON response
-  let l:response = json_decode(l:result)
-
-  if !has_key(l:response, 'content')
-    echoerr "Key 'content' not present in response: " . l:result
-    return ""
-  endif
-
-  return l:response['content'][0]['text']
 endfunction
 
 function! s:ClosePreviousFold()
