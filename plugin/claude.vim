@@ -45,6 +45,33 @@ function! s:ClaudeQuery(prompt)
   return l:response['content'][0]['text']
 endfunction
 
+function! s:ApplyCodeChangesDiff(start_line, end_line, changes)
+  let l:original_bufnr = bufnr('%')
+  let l:original_content = getline(1, '$')
+  
+  rightbelow vnew
+  setlocal buftype=nofile
+  
+  call setline(1, l:original_content)
+  
+  execute a:start_line . ',' . a:end_line . 'delete _'
+  call append(a:start_line - 1, split(a:changes, "\n"))
+  
+  diffthis
+  
+  execute 'wincmd h'
+  diffthis
+  
+  execute 'normal! ' . a:start_line . 'G'
+  
+  echomsg "Apply diff, see :help diffget. Close diff buffer with :q."
+  
+  augroup ClaudeDiff
+    autocmd!
+    autocmd BufWinLeave <buffer> diffoff!
+  augroup END
+endfunction
+
 """""""""""""""""""""""""""""""""""""
 
 " Function to prompt user and display Claude's response
@@ -100,18 +127,21 @@ function! s:ClaudeImplement(line1, line2, instruction) range
   " Prepare the prompt for code implementation
   let l:prompt = "Here's the original code:\n\n" . l:selected_code . "\n\n"
   let l:prompt .= "Instruction: " . a:instruction . "\n\n"
-  let l:prompt .= "Please rewrite the code based on the above instruction. Only provide the rewritten code without any surrounding explanations or comments."
+  let l:prompt .= "Please rewrite the code based on the above instruction. Reply precisely in the format 'Rewritten code:\\n\\n...code...', nothing else. Preserve the original indentation."
 
   " Query Claude
-  let l:implemented_code = s:ClaudeQuery(l:prompt)
+  let l:response = s:ClaudeQuery(l:prompt)
+
+  " Parse the implemented code from the response
+  let l:implemented_code = substitute(l:response, '^Rewritten code:\n\n', '', '')
 
   " Replace the selected region with the implemented code
-  execute a:line1 . "," . a:line2 . "delete"
-  call append(a:line1 - 1, split(l:implemented_code, "\n"))
+  call s:ApplyCodeChangesDiff(a:line1, a:line2, l:implemented_code)
 endfunction
 
 " Command for code implementation
 command! -range -nargs=1 ClaudeImplement <line1>,<line2>call s:ClaudeImplement(<line1>, <line2>, <q-args>)
+vnoremap <Leader>ci :ClaudeImplement<Space>
 
 """""""""""""""""""""""""""""""""""""
 
@@ -141,7 +171,7 @@ function! s:OpenClaudeChat()
     setlocal foldlevel=1
     
     call setline(1, ['System prompt: You are a pair programmer focused on concise, content-centric interactions.',
-          \ "\tMirror the user\'s communication style.",
+          \ "\tMirror the user\'s communication style, no yapping.",
           \ "\tEschew surplusage, no thank-yous and apologies!",
           \ "\tOutline & draft your approach before suggesting code, but explain your proposal only when explicitly asked.",
           \ 'Type your messages below, pres C-] to send.  Use :q to close this window.',
@@ -274,7 +304,6 @@ function! s:ClaudeQueryChat(messages, system_prompt)
     \ '-H "anthropic-version: 2023-06-01" ' .
     \ '-d ' . shellescape(l:json_data) . ' ' . g:claude_api_url
 
-  echom l:cmd
   let l:result = system(l:cmd)
 
   " Parse the JSON response
