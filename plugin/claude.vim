@@ -54,7 +54,7 @@ function! s:ApplyCodeChangesDiff(start_line, end_line, changes)
 
   call setline(1, l:original_content)
 
-  execute a:start_line . ',' . a:end_line . 'delete _'
+  silent execute a:start_line . ',' . a:end_line . 'delete _'
   call append(a:start_line - 1, split(a:changes, "\n"))
 
   diffthis
