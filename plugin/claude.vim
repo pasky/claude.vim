@@ -116,12 +116,14 @@ command! -range -nargs=1 ClaudeImplement <line1>,<line2>call s:ClaudeImplement(<
 """""""""""""""""""""""""""""""""""""
 
 function! GetChatFold(lnum)
-    let l:line = getline(a:lnum)
-    if l:line =~ '^You:'
-        return '>1'  " Start a new fold at level 1
-    else
-        return '='   " Use the fold level of the previous line
-    endif
+  let l:line = getline(a:lnum)
+  if l:line =~ '^You:' || l:line =~ '^System prompt:'
+    return '>1'  " Start a new fold at level 1
+  elseif l:line =~ '^\s' || l:line =~ '^$' || l:line =~ '^Claude:'
+    return '='   " Use the fold level of the previous line
+  else
+    return '0'  " Terminate the fold
+  endif
 endfunction
 
 function! s:OpenClaudeChat()
@@ -138,9 +140,16 @@ function! s:OpenClaudeChat()
     setlocal foldexpr=GetChatFold(v:lnum)
     setlocal foldlevel=1
     
-    call setline(1, ['Type your messages below, pres C-] to send.  Use :q to close this window.',
+    call setline(1, ['System prompt: You are a pair programmer focused on concise, content-centric interactions.',
+          \ "\tMirror the user\'s communication style.",
+          \ "\tEschew surplusage, no thank-yous and apologies!",
+          \ "\tOutline & draft your approach before suggesting code, but explain your proposal only when explicitly asked.",
+          \ 'Type your messages below, pres C-] to send.  Use :q to close this window.',
           \ '',
           \ 'You: '])
+    
+    " Fold the system prompt
+    normal! 1Gzc
     
     augroup ClaudeChat
       autocmd!
@@ -173,16 +182,26 @@ function! s:ParseBufferContent()
   let l:messages = []
   let l:current_role = ''
   let l:current_content = []
-  
+  let l:system_prompt = []
+  let l:in_system_prompt = 0
+
   for line in l:buffer_content
-    let [l:current_role, l:current_content] = s:ProcessLine(line, l:messages, l:current_role, l:current_content)
+    if line =~ '^System prompt:'
+      let l:in_system_prompt = 1
+      let l:system_prompt = [substitute(line, '^System prompt:\s*', '', '')]
+    elseif l:in_system_prompt && line =~ '^\s'
+      call add(l:system_prompt, substitute(line, '^\s*', '', ''))
+    else
+      let l:in_system_prompt = 0
+      let [l:current_role, l:current_content] = s:ProcessLine(line, l:messages, l:current_role, l:current_content)
+    endif
   endfor
-  
+
   if !empty(l:current_role)
     call add(l:messages, {'role': l:current_role, 'content': join(l:current_content, "\n")})
   endif
-  
-  return filter(l:messages, {_, v -> !empty(v.content)})
+
+  return [filter(l:messages, {_, v -> !empty(v.content)}), join(l:system_prompt, "\n")]
 endfunction
 
 function! s:ProcessLine(line, messages, current_role, current_content)
@@ -239,12 +258,12 @@ function! s:GetBufferContents()
   return l:buffers
 endfunction
 
-function! s:ClaudeQueryChat(messages, context_message)
+function! s:ClaudeQueryChat(messages, system_prompt)
   let l:data = {
     \ 'model': g:claude_model,
     \ 'max_tokens': 1024,
     \ 'messages': a:messages,
-    \ 'system': a:context_message
+    \ 'system': a:system_prompt
     \ }
   
   let l:json_data = json_encode(l:data)
@@ -255,6 +274,7 @@ function! s:ClaudeQueryChat(messages, context_message)
     \ '-H "anthropic-version: 2023-06-01" ' .
     \ '-d ' . shellescape(l:json_data) . ' ' . g:claude_api_url
 
+  echom l:cmd
   let l:result = system(l:cmd)
 
   " Parse the JSON response
@@ -290,17 +310,17 @@ function! s:ClosePreviousFold()
 endfunction
 
 function! s:SendChatMessage()
-  let l:messages = s:ParseBufferContent()
+  let [l:messages, l:system_prompt] = s:ParseBufferContent()
   let l:buffer_contents = s:GetBufferContents()
   
-  let l:context_message = "Here are the contents of other open buffers:\n\n"
+  let l:system_prompt .= "\n\nContents of open buffers:\n\n"
   for buffer in l:buffer_contents
-    let l:context_message .= "============================\n"
-    let l:context_message .= "Buffer: " . buffer.name . "\n"
-    let l:context_message .= "Contents:\n" . buffer.contents . "\n\n"
+    let l:system_prompt .= "============================\n"
+    let l:system_prompt .= "Buffer: " . buffer.name . "\n"
+    let l:system_prompt .= "Contents:\n" . buffer.contents . "\n\n"
   endfor
   
-  let l:response = s:ClaudeQueryChat(l:messages, l:context_message)
+  let l:response = s:ClaudeQueryChat(l:messages, l:system_prompt)
   call s:AppendResponse(l:response)
   call s:ClosePreviousFold()
   call s:PrepareNextInput()
