@@ -230,24 +230,6 @@ function! s:ProcessLine(line, messages, current_role, current_content)
   return [l:new_role, l:new_content]
 endfunction
 
-function! s:AppendResponse(response)
-  let l:response_lines = split(a:response, "\n")
-  if len(l:response_lines) == 1
-    call append('$', 'Claude: ' . l:response_lines[0])
-  else
-    call append('$', 'Claude:')
-    let l:indent = &expandtab ? repeat(' ', &shiftwidth) : repeat("\t", (&shiftwidth + &tabstop - 1) / &tabstop)
-    call append('$', map(l:response_lines, {_, v -> v =~ '^\s*$' ? '' : l:indent . v}))
-  endif
-endfunction
-
-function! s:PrepareNextInput()
-  call append('$', '')
-  call append('$', 'You: ')
-  normal! G$
-  startinsert!
-endfunction
-
 function! s:GetBufferContents()
   let l:buffers = []
   for bufnr in range(1, bufnr('$'))
@@ -260,6 +242,17 @@ function! s:GetBufferContents()
   return l:buffers
 endfunction
 
+function! s:AppendResponse(response)
+  let l:response_lines = split(a:response, "\n")
+  if len(l:response_lines) == 1
+    call append('$', 'Claude: ' . l:response_lines[0])
+  else
+    call append('$', 'Claude:')
+    let l:indent = &expandtab ? repeat(' ', &shiftwidth) : repeat("\t", (&shiftwidth + &tabstop - 1) / &tabstop)
+    call append('$', map(l:response_lines, {_, v -> v =~ '^\s*$' ? '' : l:indent . v}))
+  endif
+endfunction
+
 function! s:ClosePreviousFold()
   let l:save_cursor = getpos(".")
 
@@ -270,6 +263,13 @@ function! s:ClosePreviousFold()
   endif
 
   call setpos('.', l:save_cursor)
+endfunction
+
+function! s:PrepareNextInput()
+  call append('$', '')
+  call append('$', 'You: ')
+  normal! G$
+  startinsert!
 endfunction
 
 function! s:SendChatMessage()
