@@ -1,4 +1,5 @@
 " File: plugin/claude.vim
+" vim: sw=2 ts=2 et
 
 " Configuration variables
 if !exists('g:claude_api_key')
@@ -114,6 +115,15 @@ command! -range -nargs=1 ClaudeImplement <line1>,<line2>call s:ClaudeImplement(<
 
 """""""""""""""""""""""""""""""""""""
 
+function! GetChatFold(lnum)
+    let l:line = getline(a:lnum)
+    if l:line =~ '^You:'
+        return '>1'  " Start a new fold at level 1
+    else
+        return '='   " Use the fold level of the previous line
+    endif
+endfunction
+
 function! s:OpenClaudeChat()
   let l:claude_bufnr = bufnr('Claude Chat')
   
@@ -122,27 +132,25 @@ function! s:OpenClaudeChat()
     setlocal buftype=nofile
     setlocal bufhidden=hide
     setlocal noswapfile
-    setlocal wrap
     setlocal linebreak
-    setlocal nonumber
     
     setlocal foldmethod=expr
     setlocal foldexpr=GetChatFold(v:lnum)
-    setlocal foldlevel=0
+    setlocal foldlevel=1
     
-    call append(0, 'Welcome to Claude Chat!')
-    call append(1, 'Type your messages below. Use :ClaudeSend to send.')
-    call append(2, 'Use :q to close this window.')
-    call append(3, '')
-    call append(4, 'You: ')
-    
-    normal! G$
+    call setline(1, ['Type your messages below, pres C-] to send.  Use :q to close this window.',
+          \ '',
+          \ 'You: '])
     
     augroup ClaudeChat
       autocmd!
-      autocmd BufWinEnter <buffer> startinsert!
+      autocmd BufWinEnter <buffer> call s:GoToLastYouLine()
       autocmd BufWinLeave <buffer> stopinsert
     augroup END
+	
+    " Add mappings for this buffer
+    inoremap <buffer> <C-]> <Esc>:call <SID>SendChatMessage()<CR>
+    nnoremap <buffer> <C-]> :call <SID>SendChatMessage()<CR>
   else
     let l:claude_winid = bufwinid(l:claude_bufnr)
     if l:claude_winid == -1
@@ -152,6 +160,12 @@ function! s:OpenClaudeChat()
       call win_gotoid(l:claude_winid)
     endif
   endif
+  call s:GoToLastYouLine()
+endfunction
+
+function! s:GoToLastYouLine()
+  normal! G$
+  startinsert!
 endfunction
 
 function! s:ParseBufferContent()
@@ -201,7 +215,8 @@ function! s:AppendResponse(response)
     call append('$', 'Claude: ' . l:response_lines[0])
   else
     call append('$', 'Claude:')
-    call append('$', map(l:response_lines, '"    " . v:val'))
+    let l:indent = &expandtab ? repeat(' ', &shiftwidth) : repeat("\t", (&shiftwidth + &tabstop - 1) / &tabstop)
+    call append('$', map(l:response_lines, {_, v -> l:indent . v}))
   endif
 endfunction
 
@@ -240,7 +255,6 @@ function! s:ClaudeQueryChat(messages, context_message)
     \ '-H "anthropic-version: 2023-06-01" ' .
     \ '-d ' . shellescape(l:json_data) . ' ' . g:claude_api_url
 
-  echom l:cmd
   let l:result = system(l:cmd)
 
   " Parse the JSON response
@@ -252,6 +266,27 @@ function! s:ClaudeQueryChat(messages, context_message)
   endif
 
   return l:response['content'][0]['text']
+endfunction
+
+function! s:ClosePreviousFold()
+"   " Save the current position
+"   let l:save_cursor = getpos(".")
+"   
+"   " Move to the PREVIOUS fold and close it
+"   normal! [zk[zzc
+"   
+"   " Restore the cursor position
+"   call setpos('.', l:save_cursor)
+
+  let l:save_cursor = getpos(".")
+  
+  normal! G[zk[zzc
+  
+  if foldclosed('.') == -1
+    echom "Warning: Failed to close previous fold at line " . line('.')
+  endif
+  
+  call setpos('.', l:save_cursor)
 endfunction
 
 function! s:SendChatMessage()
@@ -267,6 +302,7 @@ function! s:SendChatMessage()
   
   let l:response = s:ClaudeQueryChat(l:messages, l:context_message)
   call s:AppendResponse(l:response)
+  call s:ClosePreviousFold()
   call s:PrepareNextInput()
 endfunction
 
