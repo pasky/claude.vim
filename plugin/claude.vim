@@ -220,7 +220,7 @@ function! s:AppendResponse(response)
   else
     call append('$', 'Claude:')
     let l:indent = &expandtab ? repeat(' ', &shiftwidth) : repeat("\t", (&shiftwidth + &tabstop - 1) / &tabstop)
-    call append('$', map(l:response_lines, {_, v -> l:indent . v}))
+    call append('$', map(l:response_lines, {_, v -> v =~ '^\s*$' ? '' : l:indent . v}))
   endif
 endfunction
 
