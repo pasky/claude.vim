@@ -93,6 +93,7 @@ but the twist is that Claude also sees the full content of all your buffers
 2. Enter a message on the `You: ` line (and/or indented(!) below it)
 3. `<C-]>` (in insert or normal mode) to send your message and get a reply
 4. Read the reply in the Claude window etc.
+5. If Claude proposes a code change, diff mode automatically pops up to apply it whenever possible.
 
 You can e.g. ask Claude how to debug or fix a bug you observe, or ask it
 to propose implementation of even fairly complex new functionality. For example:

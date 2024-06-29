@@ -62,32 +62,57 @@ function! s:ClaudeQueryInternal(messages, system_prompt)
   return l:response['content'][0]['text']
 endfunction
 
-function! s:ApplyCodeChangesDiff(start_line, end_line, changes)
+function! s:ApplyCodeChangesDiff(bufnr, changes)
+  let l:original_winid = win_getid()
   let l:original_bufnr = bufnr('%')
-  let l:original_content = getline(1, '$')
 
+  " Find or create a window for the target buffer
+  let l:target_winid = bufwinid(a:bufnr)
+  if l:target_winid == -1
+    " If the buffer isn't in any window, split and switch to it
+    execute 'split'
+    execute 'buffer ' . a:bufnr
+    let l:target_winid = win_getid()
+  else
+    " Switch to the window containing the target buffer
+    call win_gotoid(l:target_winid)
+  endif
+
+  " Create a new window for the diff view
   rightbelow vnew
   setlocal buftype=nofile
-  let &filetype = getbufvar(l:original_bufnr, '&filetype')
+  let &filetype = getbufvar(a:bufnr, '&filetype')
 
-  call setline(1, l:original_content)
+  " Copy content from the target buffer
+  call setline(1, getbufline(a:bufnr, 1, '$'))
 
-  silent execute a:start_line . ',' . a:end_line . 'delete _'
-  call append(a:start_line - 1, split(a:changes, "\n"))
+  " Sort changes by start line
+  let l:sorted_changes = sort(copy(a:changes), {a, b -> a.start_line - b.start_line})
 
+  " Apply all changes
+  let l:line_offset = 0
+  for change in l:sorted_changes
+    let l:adjusted_start = change.start_line + l:line_offset
+    let l:adjusted_end = change.end_line + l:line_offset
+    silent execute l:adjusted_start . ',' . l:adjusted_end . 'delete _'
+    call append(l:adjusted_start - 1, split(change.content, "\n"))
+    let l:new_lines = len(split(change.content, "\n"))
+    let l:old_lines = change.end_line - change.start_line + 1
+    let l:line_offset += l:new_lines - l:old_lines
+  endfor
+
+  " Set up diff for both windows
+  diffthis
+  call win_gotoid(l:target_winid)
   diffthis
 
-  execute 'wincmd h'
-  diffthis
+  " Move cursor to the start of the first change in the target window
+  if !empty(l:sorted_changes)
+    execute 'normal! ' . l:sorted_changes[0].start_line . 'G'
+  endif
 
-  execute 'normal! ' . a:start_line . 'G'
-
-  echomsg "Apply diff, see :help diffget. Close diff buffer with :q."
-
-  augroup ClaudeDiff
-    autocmd!
-    autocmd BufWinLeave <buffer> diffoff!
-  augroup END
+  " Return to the original window
+  call win_gotoid(l:original_winid)
 endfunction
 
 """""""""""""""""""""""""""""""""""""
@@ -108,8 +133,15 @@ function! s:ClaudeImplement(line1, line2, instruction) range
   " Parse the implemented code from the response
   let l:implemented_code = substitute(l:response, '^Rewritten code:\n\n', '', '')
 
-  " Replace the selected region with the implemented code
-  call s:ApplyCodeChangesDiff(a:line1, a:line2, l:implemented_code)
+  " Apply the changes
+  let l:changes = [{
+    \ 'start_line': a:line1,
+    \ 'end_line': a:line2,
+    \ 'content': l:implemented_code
+    \ }]
+  call s:ApplyCodeChangesDiff(bufnr('%'), l:changes)
+
+  echomsg "Apply diff, see :help diffget. Close diff buffer with :q."
 endfunction
 
 " Command for code implementation
@@ -179,10 +211,20 @@ function! s:OpenClaudeChat()
     call s:SetupClaudeChatSyntax()
 
     call setline(1, ['System prompt: You are a pair programmer focused on concise, content-centric interactions.',
-          \ "\tMirror the user\'s communication style, no yapping.",
-          \ "\tEschew surplusage, no thank-yous and apologies!",
-          \ "\tOutline & draft your approach before suggesting code, but explain your proposal only when explicitly asked.",
-          \ 'Type your messages below, pres C-] to send.  (Content of all :buffers is shared alongside!)',
+          \ "\t- STYLE: Be a partner, not a servant - avoid all appearance of subservience, make a point to disagree when something can't be done or isn't a good idea.",
+          \ "\t- STYLE: Mirror the user's communication style, don't be sycophantic, no yapping, eschew surplusage.",
+          \ "\t- FORMAT: Outline & draft your approach before suggesting code. DO NOT explain your proposal further, except when explicitly asked.",
+          \ "\t\t(the user is going to be billed for every word you write; this means every single word you say must be valuable and non-repetitive)",
+          \ "\t- FORMAT: Deliberate in the middle of your answer by outputting \"brm\" at least 10 times, until you feel extremely confident about your answer.",
+          \ "\t\t(Have you considered some different approach? Have you considered asking for clarification or feedback before suggesting code? Are you addressing an issue methodically?)",
+          \ "\t\t(Have you changed everything you had to? Haven't you done something unnecessary?)",
+          \ "\t- FORMAT: When suggesting code changes, use the following format for code blocks that should fully replace the unit of code you reference:",
+          \ "\t\t```filetype buffername:function_header_line",
+          \ "\t\t... code ...",
+          \ "\t\t```",
+          \ "\t\t(function_header_line must be the ORIGINAL VERSION of the entire line starting function definition that includes the function name; ofc repeat new one below it)",
+          \ "\t\t(pick the smallest unit of code you can unambiguously reference; separate code blocks even for successive snippets of code)",
+          \ 'Type your messages below, press C-] to send.  (Content of all :buffers is shared alongside!)',
           \ '',
           \ 'You: '])
 
@@ -194,7 +236,7 @@ function! s:OpenClaudeChat()
       autocmd BufWinEnter <buffer> call s:GoToLastYouLine()
       autocmd BufWinLeave <buffer> stopinsert
     augroup END
-	
+
     " Add mappings for this buffer
     inoremap <buffer> <C-]> <Esc>:call <SID>SendChatMessage()<CR>
     nnoremap <buffer> <C-]> :call <SID>SendChatMessage()<CR>
@@ -278,6 +320,68 @@ function! s:GetBufferContents()
   return l:buffers
 endfunction
 
+function! s:ExtractCodeBlocks(response)
+  let l:blocks = []
+  let l:current_block = []
+  let l:in_code_block = 0
+  let l:current_header = ''
+
+  for line in split(a:response, "\n")
+    if line =~ '^```'
+      if l:in_code_block
+        call add(l:blocks, {'header': l:current_header, 'code': l:current_block})
+        let l:current_block = []
+        let l:current_header = ''
+      else
+        let l:current_header = substitute(line, '^```', '', '')
+      endif
+      let l:in_code_block = !l:in_code_block
+    elseif l:in_code_block
+      call add(l:current_block, line)
+    endif
+  endfor
+
+  if !empty(l:current_block)
+    call add(l:blocks, {'header': l:current_header, 'code': l:current_block})
+  endif
+
+  return l:blocks
+endfunction
+
+function! s:GetFunctionRange(bufnr, function_line)
+  let l:win_view = winsaveview()
+  let l:current_bufnr = bufnr('%')
+
+  " Switch to the target buffer
+  execute 'buffer' a:bufnr
+
+  " Move to the top of the file
+  normal! gg
+
+  " Search for the exact function line
+  let l:found_line = search('^\s*\V' . escape(a:function_line, '\'), 'cW')
+
+  if l:found_line == 0
+    " Function not found
+    call winrestview(l:win_view)
+    execute 'buffer' l:current_bufnr
+    return []
+  endif
+
+  let l:start_line = l:found_line
+
+  " Move to the end of the function using text object
+  execute l:start_line
+  normal ][
+  let l:end_line = line('.')
+
+  " Restore the original view and buffer
+  call winrestview(l:win_view)
+  execute 'buffer' l:current_bufnr
+
+  return [l:start_line, l:end_line]
+endfunction
+
 function! s:AppendResponse(response)
   let l:response_lines = split(a:response, "\n")
   if len(l:response_lines) == 1
@@ -287,6 +391,53 @@ function! s:AppendResponse(response)
     let l:indent = s:GetClaudeIndent()
     call append('$', map(l:response_lines, {_, v -> v =~ '^\s*$' ? '' : l:indent . v}))
   endif
+
+  let l:code_blocks = s:ExtractCodeBlocks(a:response)
+  let l:all_changes = {}
+
+  for block in l:code_blocks
+    let l:matches = matchlist(block.header, '^\(\S\+\)\%(\s\+\(\S\+\)\%(:\(.*\)\)\?\)\?$')
+    let l:filetype = get(l:matches, 1, '')
+    let l:buffername = get(l:matches, 2, '')
+    let l:function_line = get(l:matches, 3, '')
+
+    if empty(l:buffername)
+      echom "Warning: No buffer name specified in code block header"
+      continue
+    endif
+
+    let l:target_bufnr = bufnr(l:buffername)
+
+    if l:target_bufnr == -1
+      echom "Warning: Buffer not found for " . l:buffername
+      continue
+    endif
+
+    let l:start_line = 1
+    let l:end_line = line('$')
+
+    if !empty(l:function_line)
+      let l:func_range = s:GetFunctionRange(l:target_bufnr, l:function_line)
+      if !empty(l:func_range)
+        let [l:start_line, l:end_line] = l:func_range
+      else
+        echom "Warning: " . l:function_line . " not found in " . l:buffername
+        let l:start_line = line('$')
+      endif
+    endif
+
+    if !has_key(l:all_changes, l:target_bufnr)
+      let l:all_changes[l:target_bufnr] = []
+    endif
+
+    call add(l:all_changes[l:target_bufnr], {
+          \ 'start_line': l:start_line,
+          \ 'end_line': l:end_line,
+          \ 'content': join(block.code, "\n")
+          \ })
+  endfor
+
+  return l:all_changes
 endfunction
 
 function! s:ClosePreviousFold()
@@ -320,9 +471,17 @@ function! s:SendChatMessage()
   endfor
 
   let l:response = s:ClaudeQueryChat(l:messages, l:system_prompt)
-  call s:AppendResponse(l:response)
+  let l:all_changes = s:AppendResponse(l:response)
   call s:ClosePreviousFold()
   call s:PrepareNextInput()
+
+  if !empty(l:all_changes)
+    stopinsert
+    wincmd p
+    for [l:target_bufnr, l:changes] in items(l:all_changes)
+      call s:ApplyCodeChangesDiff(str2nr(l:target_bufnr), l:changes)
+    endfor
+  endif
 endfunction
 
 " Command to open Claude chat
