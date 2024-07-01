@@ -160,10 +160,20 @@ endfunction
 
 function! GetChatFold(lnum)
   let l:line = getline(a:lnum)
+  let l:prev_level = foldlevel(a:lnum - 1)
+
   if l:line =~ '^You:' || l:line =~ '^System prompt:'
     return '>1'  " Start a new fold at level 1
   elseif l:line =~ '^\s' || l:line =~ '^$' || l:line =~ '^Claude:'
-    return '='   " Use the fold level of the previous line
+    if l:line =~ '^\s*```'
+      if l:prev_level == 1
+        return '>2'  " Start a new fold at level 2 for code blocks
+      else
+        return '<2'  " End the fold for code blocks
+      endif
+    else
+      return '='   " Use the fold level of the previous line
+    fi
   else
     return '0'  " Terminate the fold
   endif
@@ -180,7 +190,8 @@ function! s:SetupClaudeChatSyntax()
   syntax match claudeChatSystemKeyword /^System prompt:/ contained
   syntax match claudeChatYou /^You:/
   syntax match claudeChatClaude /^Claude:/
-  syntax region claudeChatClaudeContent start=/^Claude:/ end=/^\S/me=s-1 contains=claudeChatClaude,@markdown
+  syntax region claudeChatClaudeContent start=/^Claude:/ end=/^\S/me=s-1 contains=claudeChatClaude,@markdown,claudeChatCodeBlock
+  syntax region claudeChatCodeBlock start=/^\s*```/ end=/^\s*```/ contains=@NoSpell
 
   " Don't make everything a code block; FIXME this works satisfactorily
   " only for inline markdown pieces
@@ -190,6 +201,7 @@ function! s:SetupClaudeChatSyntax()
   highlight default link claudeChatSystemKeyword Keyword
   highlight default link claudeChatYou Keyword
   highlight default link claudeChatClaude Keyword
+  highlight default link claudeChatCodeBlock Comment
 
   let b:current_syntax = "claudechat"
 endfunction
@@ -325,15 +337,19 @@ function! s:ExtractCodeBlocks(response)
   let l:current_block = []
   let l:in_code_block = 0
   let l:current_header = ''
+  let l:start_line = 0
+  let l:line_number = 0
 
   for line in split(a:response, "\n")
+    let l:line_number += 1
     if line =~ '^```'
       if l:in_code_block
-        call add(l:blocks, {'header': l:current_header, 'code': l:current_block})
+        call add(l:blocks, {'header': l:current_header, 'code': l:current_block, 'start_line': l:start_line, 'end_line': l:line_number - 1})
         let l:current_block = []
         let l:current_header = ''
       else
         let l:current_header = substitute(line, '^```', '', '')
+        let l:start_line = l:line_number + 1
       endif
       let l:in_code_block = !l:in_code_block
     elseif l:in_code_block
@@ -342,7 +358,7 @@ function! s:ExtractCodeBlocks(response)
   endfor
 
   if !empty(l:current_block)
-    call add(l:blocks, {'header': l:current_header, 'code': l:current_block})
+    call add(l:blocks, {'header': l:current_header, 'code': l:current_block, 'start_line': l:start_line, 'end_line': l:line_number})
   endif
 
   return l:blocks
@@ -391,9 +407,12 @@ function! s:AppendResponse(response)
     let l:indent = s:GetClaudeIndent()
     call append('$', map(l:response_lines, {_, v -> v =~ '^\s*$' ? '' : l:indent . v}))
   endif
+endfunction
 
+function! s:ResponseExtractChanges(response, response_start_line)
   let l:code_blocks = s:ExtractCodeBlocks(a:response)
   let l:all_changes = {}
+  let l:applied_blocks = []
 
   for block in l:code_blocks
     let l:matches = matchlist(block.header, '^\(\S\+\)\%(\s\+\(\S\+\)\%(:\(.*\)\)\?\)\?$')
@@ -430,14 +449,24 @@ function! s:AppendResponse(response)
       let l:all_changes[l:target_bufnr] = []
     endif
 
+    " echom "block start: " . a:response_start_line . " " . block.start_line . " " . block.end_line
+    let l:block_start = a:response_start_line + block.start_line - 1
+    let l:block_end = a:response_start_line + block.end_line + 1
+
     call add(l:all_changes[l:target_bufnr], {
           \ 'start_line': l:start_line,
           \ 'end_line': l:end_line,
           \ 'content': join(block.code, "\n")
           \ })
+    
+    call add(l:applied_blocks, [l:block_start, l:block_end])
+
+    " Mark the applied code block
+    let l:indent = s:GetClaudeIndent()
+    call setline(l:block_start, l:indent . '```' . block.header . ' [APPLIED]')
   endfor
 
-  return l:all_changes
+  return [l:all_changes, l:applied_blocks]
 endfunction
 
 function! s:ClosePreviousFold()
@@ -448,6 +477,27 @@ function! s:ClosePreviousFold()
   if foldclosed('.') == -1
     echom "Warning: Failed to close previous fold at line " . line('.')
   endif
+
+  call setpos('.', l:save_cursor)
+endfunction
+
+function! s:CloseCurrentInteractionCodeBlocks()
+  let l:save_cursor = getpos(".")
+  
+  " Move to the start of the current interaction
+  normal! [z
+
+  " Find and close all level 2 folds until the end of the interaction
+  while 1
+    if foldlevel('.') == 2
+      normal! zc
+    endif
+    
+    normal! j
+    if foldlevel('.') < 1 || line('.') == line('$')
+      break
+    endif
+  endwhile
 
   call setpos('.', l:save_cursor)
 endfunction
@@ -471,8 +521,11 @@ function! s:SendChatMessage()
   endfor
 
   let l:response = s:ClaudeQueryChat(l:messages, l:system_prompt)
-  let l:all_changes = s:AppendResponse(l:response)
+  let l:response_start_line = line('$') + 1
+  call s:AppendResponse(l:response)
+  let [l:all_changes, l:applied_blocks] = s:ResponseExtractChanges(l:response, l:response_start_line)
   call s:ClosePreviousFold()
+  call s:CloseCurrentInteractionCodeBlocks()
   call s:PrepareNextInput()
 
   if !empty(l:all_changes)
