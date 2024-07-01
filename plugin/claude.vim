@@ -545,7 +545,7 @@ function! s:PrepareNextInput()
   call append('$', '')
   call append('$', 'You: ')
   normal! G$
-  startinsert!
+  call feedkeys("A\<Esc>A", 'n')
 endfunction
 
 function! s:SendChatMessage()
