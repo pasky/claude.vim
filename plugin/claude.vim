@@ -17,16 +17,12 @@ endif
 """""""""""""""""""""""""""""""""""""
 
 " Function to send a prompt to Claude and get a response
-function! s:ClaudeQuery(prompt)
+function! s:ClaudeQuery(prompt, callback)
   let l:messages = [{'role': 'user', 'content': a:prompt}]
-  return s:ClaudeQueryInternal(l:messages, '')
+  return s:ClaudeQueryInternal(l:messages, '', '')
 endfunction
 
-function! s:ClaudeQueryChat(messages, system_prompt)
-  return s:ClaudeQueryInternal(a:messages, a:system_prompt)
-endfunction
-
-function! s:ClaudeQueryInternal(messages, system_prompt)
+function! s:ClaudeQueryInternal(messages, system_prompt, callback)
   " Prepare the API request
   let l:data = {
     \ 'model': g:claude_model,
@@ -42,24 +38,62 @@ function! s:ClaudeQueryInternal(messages, system_prompt)
   let l:json_data = json_encode(l:data)
 
   " Prepare the curl command
-  let l:cmd = 'curl -s -X POST ' .
-    \ '-H "Content-Type: application/json" ' .
-    \ '-H "x-api-key: ' . g:claude_api_key . '" ' .
-    \ '-H "anthropic-version: 2023-06-01" ' .
-    \ '-d ' . shellescape(l:json_data) . ' ' . g:claude_api_url
+  let l:cmd = ['curl', '-s', '-X', 'POST',
+    \ '-H', 'Content-Type: application/json',
+    \ '-H', 'x-api-key: ' . g:claude_api_key,
+    \ '-H', 'anthropic-version: 2023-06-01',
+    \ '-d', l:json_data,
+    \ g:claude_api_url]
 
-  " Execute the curl command and capture the output
-  let l:result = system(l:cmd)
+  " Start the job
+  let l:job = job_start(l:cmd, {
+    \ 'out_cb': function('s:HandleJobOutput', [a:callback]),
+    \ 'err_cb': function('s:HandleJobError', [a:callback]),
+    \ 'exit_cb': function('s:HandleJobExit', [a:callback])
+    \ })
 
-  " Parse the JSON response
-  let l:response = json_decode(l:result)
+  return l:job
+endfunction
 
-  if !has_key(l:response, 'content')
-    echoerr "Key 'content' not present in response: " . l:result
-    return ""
+function! s:HandleJobOutput(callback, channel, msg)
+  let l:response = json_decode(a:msg)
+  if has_key(l:response, 'content')
+    call a:callback(l:response['content'][0]['text'])
+  else
+    call a:callback('Error: Unexpected response format (' . l:msg . ')')
   endif
+endfunction
 
-  return l:response['content'][0]['text']
+function! s:HandleJobError(callback, channel, msg)
+  call a:callback('Error: ' . a:msg)
+endfunction
+
+function! s:HandleJobExit(callback, job, status)
+  if a:status != 0
+    call a:callback('Error: Job exited with status ' . a:status)
+  endif
+endfunction
+
+function! s:ShowProgressIndicator()
+  let l:indent = s:GetClaudeIndent()
+  call append('$', 'Claude: Thinking...')
+  let s:progress_timer = timer_start(250, function('s:UpdateProgressIndicator'), {'repeat': -1})
+endfunction
+
+function! s:UpdateProgressIndicator(timer)
+  let l:line = getline('$')
+  if l:line =~ '^Claude: Thinking'
+    if len(l:line) > 20
+      call setline('$', 'Claude: Thinking')
+    else
+      call setline('$', l:line . '.')
+    endif
+  endif
+endfunction
+
+function! s:HideProgressIndicator()
+  call timer_stop(s:progress_timer)
+  %g/^Claude: Thinking/d_
 endfunction
 
 function! s:ApplyCodeChangesDiff(bufnr, changes)
@@ -128,10 +162,15 @@ function! s:ClaudeImplement(line1, line2, instruction) range
   let l:prompt .= "Please rewrite the code based on the above instruction. Reply precisely in the format 'Rewritten code:\\n\\n...code...', nothing else. Preserve the original indentation."
 
   " Query Claude
-  let l:response = s:ClaudeQuery(l:prompt)
+  let l:messages = [{'role': 'user', 'content': l:prompt}]
+  call s:ShowProgressIndicator()
+  call s:ClaudeQueryInternal(l:messages, '', function('s:HandleImplementResponse', [a:line1, a:line2, bufnr('%'), bufname('%'), a:instruction]))
+endfunction
 
+function! s:HandleImplementResponse(line1, line2, bufnr, bufname, instruction, response)
+  call s:HideProgressIndicator()
   " Parse the implemented code from the response
-  let l:implemented_code = substitute(l:response, '^Rewritten code:\n\n', '', '')
+  let l:implemented_code = substitute(a:response, '^Rewritten code:\n\n', '', '')
 
   " Apply the changes
   let l:changes = [{
@@ -520,10 +559,15 @@ function! s:SendChatMessage()
     let l:system_prompt .= "Contents:\n" . buffer.contents . "\n\n"
   endfor
 
-  let l:response = s:ClaudeQueryChat(l:messages, l:system_prompt)
+  call s:ShowProgressIndicator()
+  let l:job = s:ClaudeQueryInternal(l:messages, l:system_prompt, function('s:HandleChatResponse'))
+endfunction
+
+function! s:HandleChatResponse(response)
+  call s:HideProgressIndicator()
   let l:response_start_line = line('$') + 1
-  call s:AppendResponse(l:response)
-  let [l:all_changes, l:applied_blocks] = s:ResponseExtractChanges(l:response, l:response_start_line)
+  call s:AppendResponse(a:response)
+  let [l:all_changes, l:applied_blocks] = s:ResponseExtractChanges(a:response, l:response_start_line)
   call s:ClosePreviousFold()
   call s:CloseCurrentInteractionCodeBlocks()
   call s:PrepareNextInput()
