@@ -16,18 +16,13 @@ endif
 
 """""""""""""""""""""""""""""""""""""
 
-" Function to send a prompt to Claude and get a response
-function! s:ClaudeQuery(prompt, callback)
-  let l:messages = [{'role': 'user', 'content': a:prompt}]
-  return s:ClaudeQueryInternal(l:messages, '', '')
-endfunction
-
 function! s:ClaudeQueryInternal(messages, system_prompt, callback)
   " Prepare the API request
   let l:data = {
     \ 'model': g:claude_model,
     \ 'max_tokens': 2048,
-    \ 'messages': a:messages
+    \ 'messages': a:messages,
+    \ 'stream': v:true
     \ }
 
   if !empty(a:system_prompt)
@@ -38,7 +33,7 @@ function! s:ClaudeQueryInternal(messages, system_prompt, callback)
   let l:json_data = json_encode(l:data)
 
   " Prepare the curl command
-  let l:cmd = ['curl', '-s', '-X', 'POST',
+  let l:cmd = ['curl', '-s', '-N', '-X', 'POST',
     \ '-H', 'Content-Type: application/json',
     \ '-H', 'x-api-key: ' . g:claude_api_key,
     \ '-H', 'anthropic-version: 2023-06-01',
@@ -47,7 +42,7 @@ function! s:ClaudeQueryInternal(messages, system_prompt, callback)
 
   " Start the job
   let l:job = job_start(l:cmd, {
-    \ 'out_cb': function('s:HandleJobOutput', [a:callback]),
+    \ 'out_cb': function('s:HandleStreamOutput', [a:callback]),
     \ 'err_cb': function('s:HandleJobError', [a:callback]),
     \ 'exit_cb': function('s:HandleJobExit', [a:callback])
     \ })
@@ -55,13 +50,27 @@ function! s:ClaudeQueryInternal(messages, system_prompt, callback)
   return l:job
 endfunction
 
-function! s:HandleJobOutput(callback, channel, msg)
-  let l:response = json_decode(a:msg)
-  if has_key(l:response, 'content')
-    call a:callback(l:response['content'][0]['text'])
-  else
-    call a:callback('Error: Unexpected response format (' . l:msg . ')')
-  endif
+function! s:HandleStreamOutput(callback, channel, msg)
+  " Split the message into lines
+  let l:lines = split(a:msg, "\n")
+  for l:line in l:lines
+    " Check if the line starts with 'data:'
+    if l:line =~# '^data:'
+      " Extract the JSON data
+      let l:json_str = substitute(l:line, '^data:\s*', '', '')
+      let l:response = json_decode(l:json_str)
+      if has_key(l:response, 'delta') && has_key(l:response.delta, 'text')
+        let l:delta = l:response.delta.text
+        call a:callback(l:delta, v:false)
+      endif
+    elseif l:line ==# 'event: ping'
+      " Ignore ping events
+    elseif l:line ==# 'event: error'
+      call a:callback('Error: Server sent an error event', v:true)
+    elseif l:line ==# 'event: message_stop'
+      call a:callback('', v:true)
+    endif
+  endfor
 endfunction
 
 function! s:HandleJobError(callback, channel, msg)
@@ -70,7 +79,7 @@ endfunction
 
 function! s:HandleJobExit(callback, job, status)
   if a:status != 0
-    call a:callback('Error: Job exited with status ' . a:status)
+    call a:callback('Error: Job exited with status ' . a:status, v:true)
   endif
 endfunction
 
@@ -85,44 +94,6 @@ function! s:GetOrCreateChatWindow()
   let l:current_winid = win_getid()
 
   return [l:chat_bufnr, l:chat_winid, l:current_winid]
-endfunction
-
-function! s:ShowProgressIndicator()
-  let [l:chat_bufnr, l:chat_winid, l:current_winid] = s:GetOrCreateChatWindow()
-
-  if l:chat_winid != -1
-    call win_gotoid(l:chat_winid)
-    let l:indent = s:GetClaudeIndent()
-    call append('$', 'Claude: Thinking...')
-    normal G$
-    let s:progress_timer = timer_start(500, function('s:UpdateProgressIndicator'), {'repeat': -1})
-    call win_gotoid(l:current_winid)
-  endif
-endfunction
-
-function! s:UpdateProgressIndicator(timer)
-  let l:chat_bufnr = bufnr('Claude Chat')
-  if l:chat_bufnr != -1 && bufloaded(l:chat_bufnr)
-    let l:lines = getbufline(l:chat_bufnr, '$')
-    if !empty(l:lines) && l:lines[0] =~ '^Claude: Thinking'
-      if len(l:lines[0]) > 20
-        call setbufline(l:chat_bufnr, '$', 'Claude: Thinking')
-      else
-        call setbufline(l:chat_bufnr, '$', l:lines[0] . '.')
-      endif
-    endif
-  endif
-endfunction
-
-function! s:HideProgressIndicator()
-  call timer_stop(s:progress_timer)
-
-  let [l:chat_bufnr, l:chat_winid, l:current_winid] = s:GetOrCreateChatWindow()
-  if l:chat_winid != -1
-    call win_gotoid(l:chat_winid)
-    %g/^Claude: Thinking/d_
-    call win_gotoid(l:current_winid)
-  endif
 endfunction
 
 function! s:ApplyCodeChangesDiff(bufnr, changes)
@@ -208,7 +179,6 @@ function! s:LogImplementInChat(instruction, implemented_code, bufname, start_lin
     call s:ClosePreviousFold()
     call s:CloseCurrentInteractionCodeBlocks()
     call s:PrepareNextInput()
-    stopinsert
 
     call win_gotoid(l:current_winid)
   endif
@@ -229,29 +199,37 @@ function! s:ClaudeImplement(line1, line2, instruction) range
 
   " Query Claude
   let l:messages = [{'role': 'user', 'content': l:prompt}]
-  call s:ShowProgressIndicator()
   call s:ClaudeQueryInternal(l:messages, '', function('s:HandleImplementResponse', [a:line1, a:line2, l:bufnr, l:bufname, l:winid, a:instruction]))
 endfunction
 
-function! s:HandleImplementResponse(line1, line2, bufnr, bufname, winid, instruction, response)
-  call s:HideProgressIndicator()
-  call win_gotoid(a:winid)
+function! s:HandleImplementResponse(line1, line2, bufnr, bufname, winid, instruction, delta, is_final)
+  if !exists("s:implement_response")
+    let s:implement_response = ""
+  endif
 
-  " Parse the implemented code from the response
-  let l:implemented_code = substitute(a:response, '^Rewritten code:\n\n', '', '')
+  let s:implement_response .= a:delta
 
-  " Apply the changes
-  let l:changes = [{
-    \ 'start_line': a:line1,
-    \ 'end_line': a:line2,
-    \ 'content': l:implemented_code
-    \ }]
-  call s:ApplyCodeChangesDiff(a:bufnr, l:changes)
+  if a:is_final
+    call win_gotoid(a:winid)
 
-  " Log the interaction in the chat buffer
-  call s:LogImplementInChat(a:instruction, l:implemented_code, a:bufname, a:line1, a:line2)
+    " Parse the implemented code from the response
+    let l:implemented_code = substitute(s:implement_response, '^Rewritten code:\n\n', '', '')
 
-  echomsg "Apply diff, see :help diffget. Close diff buffer with :q."
+    " Apply the changes
+    let l:changes = [{
+      \ 'start_line': a:line1,
+      \ 'end_line': a:line2,
+      \ 'content': l:implemented_code
+      \ }]
+    call s:ApplyCodeChangesDiff(a:bufnr, l:changes)
+
+    " Log the interaction in the chat buffer
+    call s:LogImplementInChat(a:instruction, l:implemented_code, a:bufname, a:line1, a:line2)
+
+    echomsg "Apply diff, see :help diffget. Close diff buffer with :q."
+
+    unlet s:implement_response
+  endif
 endfunction
 
 " Command for code implementation
@@ -356,7 +334,6 @@ function! s:OpenClaudeChat()
     augroup ClaudeChat
       autocmd!
       autocmd BufWinEnter <buffer> call s:GoToLastYouLine()
-      autocmd BufWinLeave <buffer> stopinsert
     augroup END
 
     " Add mappings for this buffer
@@ -376,7 +353,6 @@ endfunction
 
 function! s:GoToLastYouLine()
   normal! G$
-  startinsert!
 endfunction
 
 function! s:ParseBufferContent()
@@ -617,7 +593,6 @@ function! s:PrepareNextInput()
   call append('$', '')
   call append('$', 'You: ')
   normal! G$
-  call feedkeys("A\<Esc>A", 'n')
 endfunction
 
 function! s:SendChatMessage()
@@ -631,25 +606,68 @@ function! s:SendChatMessage()
     let l:system_prompt .= "Contents:\n" . buffer.contents . "\n\n"
   endfor
 
-  call s:ShowProgressIndicator()
   let l:job = s:ClaudeQueryInternal(l:messages, l:system_prompt, function('s:HandleChatResponse'))
+  
+  " Store the job ID for potential cancellation
+  let s:current_chat_job = job_getchannel(l:job)
 endfunction
 
-function! s:HandleChatResponse(response)
-  call s:HideProgressIndicator()
-  let l:response_start_line = line('$') + 1
-  call s:AppendResponse(a:response)
-  let [l:all_changes, l:applied_blocks] = s:ResponseExtractChanges(a:response, l:response_start_line)
-  call s:ClosePreviousFold()
-  call s:CloseCurrentInteractionCodeBlocks()
-  call s:PrepareNextInput()
+function! s:HandleChatResponse(delta, is_final)
+  if !exists("s:current_response")
+    let s:current_response = ""
+    let s:response_lines = []
+  endif
 
-  if !empty(l:all_changes)
-    stopinsert
-    wincmd p
-    for [l:target_bufnr, l:changes] in items(l:all_changes)
-      call s:ApplyCodeChangesDiff(str2nr(l:target_bufnr), l:changes)
-    endfor
+  let s:current_response .= a:delta
+
+  let [l:chat_bufnr, l:chat_winid, l:current_winid] = s:GetOrCreateChatWindow()
+  if l:chat_winid != -1
+    call win_gotoid(l:chat_winid)
+
+    if !exists("s:response_base_line")
+      let s:response_base_line = line("$") + 1
+    endif
+    
+    let l:indent = s:GetClaudeIndent()
+    let l:new_lines = split(a:delta, "\n", 1)
+    
+    " Append to existing lines or add new ones
+    if empty(s:response_lines)
+      call add(s:response_lines, l:new_lines[0])
+    else
+      let s:response_lines[-1] .= l:new_lines[0]
+    endif
+    call extend(s:response_lines, l:new_lines[1:])
+    
+    " Update the buffer content
+    if len(s:response_lines) == 1
+      call setline(s:response_base_line, "Claude: " . s:response_lines[0])
+    else
+      call setline(s:response_base_line, "Claude:")
+      call setline(s:response_base_line + 1, map(copy(s:response_lines), {_, v -> v =~ '^\s*$' ? '' : l:indent . v}))
+    endif
+    
+    " Scroll to the bottom
+    normal! G
+    call win_gotoid(l:current_winid)
+  endif
+
+  if a:is_final
+    let [l:all_changes, l:applied_blocks] = s:ResponseExtractChanges(s:current_response, s:response_base_line)
+    call s:ClosePreviousFold()
+    call s:CloseCurrentInteractionCodeBlocks()
+    call s:PrepareNextInput()
+
+    if !empty(l:all_changes)
+      wincmd p
+      for [l:target_bufnr, l:changes] in items(l:all_changes)
+        call s:ApplyCodeChangesDiff(str2nr(l:target_bufnr), l:changes)
+      endfor
+    endif
+
+    unlet s:current_response
+    unlet s:response_lines
+    unlet s:response_base_line
   endif
 endfunction
 
