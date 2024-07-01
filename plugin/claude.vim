@@ -195,7 +195,7 @@ function! s:ClaudeImplement(line1, line2, instruction) range
   " Prepare the prompt for code implementation
   let l:prompt = "Here's the original code:\n\n" . l:selected_code . "\n\n"
   let l:prompt .= "Instruction: " . a:instruction . "\n\n"
-  let l:prompt .= "Please rewrite the code based on the above instruction. Reply precisely in the format 'Rewritten code:\\n\\n...code...', nothing else. Preserve the original indentation."
+  let l:prompt .= "Please rewrite the code based on the above instruction. Reply precisely in the format 'Rewritten code:\\n\\n...code...', nothing else (not even markdown). Preserve the original indentation."
 
   " Query Claude
   let l:messages = [{'role': 'user', 'content': l:prompt}]
