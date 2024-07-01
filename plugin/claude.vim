@@ -74,26 +74,55 @@ function! s:HandleJobExit(callback, job, status)
   endif
 endfunction
 
+function! s:GetOrCreateChatWindow()
+  let l:chat_bufnr = bufnr('Claude Chat')
+  if l:chat_bufnr == -1 || !bufloaded(l:chat_bufnr)
+    call s:OpenClaudeChat()
+    let l:chat_bufnr = bufnr('Claude Chat')
+  endif
+
+  let l:chat_winid = bufwinid(l:chat_bufnr)
+  let l:current_winid = win_getid()
+
+  return [l:chat_bufnr, l:chat_winid, l:current_winid]
+endfunction
+
 function! s:ShowProgressIndicator()
-  let l:indent = s:GetClaudeIndent()
-  call append('$', 'Claude: Thinking...')
-  let s:progress_timer = timer_start(250, function('s:UpdateProgressIndicator'), {'repeat': -1})
+  let [l:chat_bufnr, l:chat_winid, l:current_winid] = s:GetOrCreateChatWindow()
+
+  if l:chat_winid != -1
+    call win_gotoid(l:chat_winid)
+    let l:indent = s:GetClaudeIndent()
+    call append('$', 'Claude: Thinking...')
+    normal G$
+    let s:progress_timer = timer_start(500, function('s:UpdateProgressIndicator'), {'repeat': -1})
+    call win_gotoid(l:current_winid)
+  endif
 endfunction
 
 function! s:UpdateProgressIndicator(timer)
-  let l:line = getline('$')
-  if l:line =~ '^Claude: Thinking'
-    if len(l:line) > 20
-      call setline('$', 'Claude: Thinking')
-    else
-      call setline('$', l:line . '.')
+  let l:chat_bufnr = bufnr('Claude Chat')
+  if l:chat_bufnr != -1 && bufloaded(l:chat_bufnr)
+    let l:lines = getbufline(l:chat_bufnr, '$')
+    if !empty(l:lines) && l:lines[0] =~ '^Claude: Thinking'
+      if len(l:lines[0]) > 20
+        call setbufline(l:chat_bufnr, '$', 'Claude: Thinking')
+      else
+        call setbufline(l:chat_bufnr, '$', l:lines[0] . '.')
+      endif
     endif
   endif
 endfunction
 
 function! s:HideProgressIndicator()
   call timer_stop(s:progress_timer)
-  %g/^Claude: Thinking/d_
+
+  let [l:chat_bufnr, l:chat_winid, l:current_winid] = s:GetOrCreateChatWindow()
+  if l:chat_winid != -1
+    call win_gotoid(l:chat_winid)
+    %g/^Claude: Thinking/d_
+    call win_gotoid(l:current_winid)
+  endif
 endfunction
 
 function! s:ApplyCodeChangesDiff(bufnr, changes)
@@ -151,10 +180,47 @@ endfunction
 
 """""""""""""""""""""""""""""""""""""
 
+function! s:LogImplementInChat(instruction, implemented_code, bufname, start_line, end_line)
+  let [l:chat_bufnr, l:chat_winid, l:current_winid] = s:GetOrCreateChatWindow()
+
+  let start_line_text = getline(a:start_line)
+  let end_line_text = getline(a:end_line)
+
+  if l:chat_winid != -1
+    call win_gotoid(l:chat_winid)
+    let l:indent = s:GetClaudeIndent()
+
+    " Remove trailing "You:" line if it exists
+    let l:last_line = line('$')
+    if getline(l:last_line) =~ '^You:\s*$'
+      execute l:last_line . 'delete _'
+    endif
+
+    call append('$', 'You: Implement in ' . a:bufname . ' (lines ' . a:start_line . '-' . a:end_line . '): ' . a:instruction)
+    call append('$', l:indent . start_line_text)
+    if a:end_line - a:start_line > 1
+      call append('$', l:indent . "...")
+    endif
+    if a:end_line - a:start_line > 0
+      call append('$', l:indent . end_line_text)
+    endif
+    call s:AppendResponse("```\n" . a:implemented_code . "\n```")
+    call s:ClosePreviousFold()
+    call s:CloseCurrentInteractionCodeBlocks()
+    call s:PrepareNextInput()
+    stopinsert
+
+    call win_gotoid(l:current_winid)
+  endif
+endfunction
+
 " Function to implement code based on instructions
 function! s:ClaudeImplement(line1, line2, instruction) range
   " Get the selected code
   let l:selected_code = join(getline(a:line1, a:line2), "\n")
+  let l:bufnr = bufnr('%')
+  let l:bufname = bufname('%')
+  let l:winid = win_getid()
 
   " Prepare the prompt for code implementation
   let l:prompt = "Here's the original code:\n\n" . l:selected_code . "\n\n"
@@ -164,11 +230,13 @@ function! s:ClaudeImplement(line1, line2, instruction) range
   " Query Claude
   let l:messages = [{'role': 'user', 'content': l:prompt}]
   call s:ShowProgressIndicator()
-  call s:ClaudeQueryInternal(l:messages, '', function('s:HandleImplementResponse', [a:line1, a:line2, bufnr('%'), bufname('%'), a:instruction]))
+  call s:ClaudeQueryInternal(l:messages, '', function('s:HandleImplementResponse', [a:line1, a:line2, l:bufnr, l:bufname, l:winid, a:instruction]))
 endfunction
 
-function! s:HandleImplementResponse(line1, line2, bufnr, bufname, instruction, response)
+function! s:HandleImplementResponse(line1, line2, bufnr, bufname, winid, instruction, response)
   call s:HideProgressIndicator()
+  call win_gotoid(a:winid)
+
   " Parse the implemented code from the response
   let l:implemented_code = substitute(a:response, '^Rewritten code:\n\n', '', '')
 
@@ -178,7 +246,10 @@ function! s:HandleImplementResponse(line1, line2, bufnr, bufname, instruction, r
     \ 'end_line': a:line2,
     \ 'content': l:implemented_code
     \ }]
-  call s:ApplyCodeChangesDiff(bufnr('%'), l:changes)
+  call s:ApplyCodeChangesDiff(a:bufnr, l:changes)
+
+  " Log the interaction in the chat buffer
+  call s:LogImplementInChat(a:instruction, l:implemented_code, a:bufname, a:line1, a:line2)
 
   echomsg "Apply diff, see :help diffget. Close diff buffer with :q."
 endfunction
@@ -532,8 +603,9 @@ function! s:CloseCurrentInteractionCodeBlocks()
       normal! zc
     endif
     
+    let current_line = line('.')
     normal! j
-    if foldlevel('.') < 1 || line('.') == line('$')
+    if line('.') == current_line || foldlevel('.') < 1 || line('.') == line('$')
       break
     endif
   endwhile
