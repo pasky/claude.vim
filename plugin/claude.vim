@@ -30,7 +30,7 @@ function! s:ClaudeQueryInternal(messages, system_prompt)
   " Prepare the API request
   let l:data = {
     \ 'model': g:claude_model,
-    \ 'max_tokens': 1024,
+    \ 'max_tokens': 2048,
     \ 'messages': a:messages
     \ }
 
@@ -224,9 +224,9 @@ function! s:OpenClaudeChat()
 
     call setline(1, ['System prompt: You are a pair programmer focused on concise, content-centric interactions.',
           \ "\t- STYLE: Be a partner, not a servant - avoid all appearance of subservience, make a point to disagree when something can't be done or isn't a good idea.",
-          \ "\t- STYLE: Mirror the user's communication style, don't be sycophantic, no yapping, eschew surplusage.",
-          \ "\t- FORMAT: Outline & draft your approach before suggesting code. DO NOT explain your proposal further, except when explicitly asked.",
-          \ "\t\t(the user is going to be billed for every word you write; this means every single word you say must be valuable and non-repetitive)",
+          \ "\t- STYLE: Mirror the user's communication style, don't be FUCKING SYCOPHANTIC, no yapping, eschew surplusage, every word counts.",
+          \ "\t- FORMAT: Outline & draft your approach before suggesting code. DO NOT list code before changing it. DO NOT explain your proposal further, except when explicitly asked.",
+          \ "\t\t(the user is going to be billed for every word you write; DO NOT WASTE THEIR MONEY!)",
           \ "\t- FORMAT: Deliberate in the middle of your answer by outputting \"brm\" at least 10 times, until you feel extremely confident about your answer.",
           \ "\t\t(Have you considered some different approach? Have you considered asking for clarification or feedback before suggesting code? Are you addressing an issue methodically?)",
           \ "\t\t(Have you changed everything you had to? Haven't you done something unnecessary?)",
