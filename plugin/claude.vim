@@ -60,11 +60,19 @@ function! s:ClaudeQueryInternal(messages, system_prompt, callback)
     \ g:claude_api_url]
 
   " Start the job
-  let l:job = job_start(l:cmd, {
-    \ 'out_cb': function('s:HandleStreamOutput', [a:callback]),
-    \ 'err_cb': function('s:HandleJobError', [a:callback]),
-    \ 'exit_cb': function('s:HandleJobExit', [a:callback])
-    \ })
+  if has('nvim')
+    let l:job = jobstart(l:cmd, {
+      \ 'on_stdout': function('s:HandleStreamOutputNvim', [a:callback]),
+      \ 'on_stderr': function('s:HandleJobErrorNvim', [a:callback]),
+      \ 'on_exit': function('s:HandleJobExitNvim', [a:callback])
+      \ })
+  else
+    let l:job = job_start(l:cmd, {
+      \ 'out_cb': function('s:HandleStreamOutput', [a:callback]),
+      \ 'err_cb': function('s:HandleJobError', [a:callback]),
+      \ 'exit_cb': function('s:HandleJobExit', [a:callback])
+      \ })
+  endif
 
   return l:job
 endfunction
@@ -92,14 +100,32 @@ function! s:HandleStreamOutput(callback, channel, msg)
   endfor
 endfunction
 
-function! s:HandleJobError(callback, channel, msg)
-  call a:callback('Error: ' . a:msg)
+function! s:HandleJobError(callback, channel, msg, is_final)
+  call a:callback('Error: ' . a:msg, a:is_final)
 endfunction
 
 function! s:HandleJobExit(callback, job, status)
   if a:status != 0
     call a:callback('Error: Job exited with status ' . a:status, v:true)
   endif
+endfunction
+
+function! s:HandleStreamOutputNvim(callback, job_id, data, event) dict
+  for l:msg in a:data
+    call s:HandleStreamOutput(a:callback, 0, l:msg)
+  endfor
+endfunction
+
+function! s:HandleJobErrorNvim(callback, job_id, data, event) dict
+  for l:msg in a:data
+    if l:msg != ''
+      call s:HandleJobError(a:callback, 0, l:msg, v:true)
+    endif
+  endfor
+endfunction
+
+function! s:HandleJobExitNvim(callback, job_id, exit_code, event) dict
+  call s:HandleJobExit(a:callback, 0, a:exit_code)
 endfunction
 
 function! s:GetOrCreateChatWindow()
@@ -613,8 +639,12 @@ function! s:SendChatMessage()
 
   let l:job = s:ClaudeQueryInternal(l:messages, l:system_prompt, function('s:HandleChatResponse'))
   
-  " Store the job channel for potential cancellation
-  let s:current_chat_job = job_getchannel(l:job)
+  " Store the job ID or channel for potential cancellation
+  if has('nvim')
+    let s:current_chat_job = l:job
+  else
+    let s:current_chat_job = job_getchannel(l:job)
+  endif
 endfunction
 
 function! s:HandleChatResponse(delta, is_final)
@@ -675,7 +705,11 @@ endfunction
 
 function! s:CancelClaudeResponse()
   if exists("s:current_chat_job")
-    call ch_close(s:current_chat_job)
+    if has('nvim')
+      call jobstop(s:current_chat_job)
+    else
+      call ch_close(s:current_chat_job)
+    endif
     unlet s:current_chat_job
     call s:AppendResponse("[Response cancelled by user]")
     call s:ClosePreviousFold()
