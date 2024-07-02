@@ -613,7 +613,7 @@ function! s:SendChatMessage()
 
   let l:job = s:ClaudeQueryInternal(l:messages, l:system_prompt, function('s:HandleChatResponse'))
   
-  " Store the job ID for potential cancellation
+  " Store the job channel for potential cancellation
   let s:current_chat_job = job_getchannel(l:job)
 endfunction
 
@@ -669,8 +669,25 @@ function! s:HandleChatResponse(delta, is_final)
 
     unlet s:current_response
     unlet s:response_start_line
+    unlet! s:current_chat_job
   endif
 endfunction
+
+function! s:CancelClaudeResponse()
+  if exists("s:current_chat_job")
+    call ch_close(s:current_chat_job)
+    unlet s:current_chat_job
+    call s:AppendResponse("[Response cancelled by user]")
+    call s:ClosePreviousFold()
+    call s:CloseCurrentInteractionCodeBlocks()
+    call s:PrepareNextInput()
+    echo "Claude response cancelled."
+  else
+    echo "No ongoing Claude response to cancel."
+  endif
+endfunction
+
+command! ClaudeCancel call s:CancelClaudeResponse()
 
 " Command to open Claude chat
 command! ClaudeChat call s:OpenClaudeChat()
@@ -680,3 +697,4 @@ command! ClaudeSend call <SID>SendChatMessage()
 
 " Optional: Key mapping
 nnoremap <Leader>cc :ClaudeChat<CR>
+nnoremap <Leader>cx :ClaudeCancel<CR>
