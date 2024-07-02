@@ -615,7 +615,7 @@ endfunction
 function! s:HandleChatResponse(delta, is_final)
   if !exists("s:current_response")
     let s:current_response = ""
-    let s:response_lines = []
+    let s:response_start_line = 0
   endif
 
   let s:current_response .= a:delta
@@ -624,27 +624,28 @@ function! s:HandleChatResponse(delta, is_final)
   if l:chat_winid != -1
     call win_gotoid(l:chat_winid)
 
-    if !exists("s:response_base_line")
-      let s:response_base_line = line("$") + 1
+    if s:response_start_line == 0
+      let s:response_start_line = line("$") + 1
+      call append('$', "Claude: ")
     endif
     
     let l:indent = s:GetClaudeIndent()
     let l:new_lines = split(a:delta, "\n", 1)
     
-    " Append to existing lines or add new ones
-    if empty(s:response_lines)
-      call add(s:response_lines, l:new_lines[0])
-    else
-      let s:response_lines[-1] .= l:new_lines[0]
-    endif
-    call extend(s:response_lines, l:new_lines[1:])
-    
-    " Update the buffer content
-    if len(s:response_lines) == 1
-      call setline(s:response_base_line, "Claude: " . s:response_lines[0])
-    else
-      call setline(s:response_base_line, "Claude:")
-      call setline(s:response_base_line + 1, map(copy(s:response_lines), {_, v -> v =~ '^\s*$' ? '' : l:indent . v}))
+    " Append new content to the buffer
+    if len(l:new_lines) > 0
+      " Update the last line with the first segment of the delta
+      let l:last_line = getline('$')
+      call setline('$', l:last_line . l:new_lines[0])
+      
+      " Append the rest of the new lines
+      for l:line in l:new_lines[1:]
+        if l:line !~ '^\s*$'
+          call append('$', l:indent . l:line)
+        else
+          call append('$', '')
+        endif
+      endfor
     endif
     
     " Scroll to the bottom
@@ -653,7 +654,7 @@ function! s:HandleChatResponse(delta, is_final)
   endif
 
   if a:is_final
-    let [l:all_changes, l:applied_blocks] = s:ResponseExtractChanges(s:current_response, s:response_base_line)
+    let [l:all_changes, l:applied_blocks] = s:ResponseExtractChanges(s:current_response, s:response_start_line)
     call s:ClosePreviousFold()
     call s:CloseCurrentInteractionCodeBlocks()
     call s:PrepareNextInput()
@@ -666,8 +667,7 @@ function! s:HandleChatResponse(delta, is_final)
     endif
 
     unlet s:current_response
-    unlet s:response_lines
-    unlet s:response_base_line
+    unlet s:response_start_line
   endif
 endfunction
 
