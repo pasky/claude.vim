@@ -13,8 +13,19 @@ to debug problems, and Claude offers opinions while seeing your actual code,
 or goes ahead and proposes the modifications - high level, or just straight
 writes the code.
 
-**NOTE: Check back in a few days for some demo GIFs.** For now, suffice it to
-say that about 95% of the code of this plugin has been written by Claude
+This plugin will give you a partner who will one-shot new features in your codebase:
+
+https://github.com/pasky/claude.vim/assets/18439/73ffcaac-d5b4-4508-b9fa-077c189d2c93
+
+You can let it refactor your code if it's a bit messy, and have an ongoing discussion about it:
+
+https://github.com/pasky/claude.vim/assets/18439/625060ca-600f-4774-adbe-ec93f94a30e9
+
+You can ask it to modify or extend just a selected piece of your code:
+
+https://github.com/pasky/claude.vim/assets/18439/71544b57-e87d-4dd4-a7e6-4051fa080d18
+
+Note that about 95% of the code of this plugin has been written by Claude
 Sonnet 3.5, and most of the time already "self-hosted" within the plugin.
 
 **NOTE: This is early alpha software.**  It is expected to rapidly evolve...
