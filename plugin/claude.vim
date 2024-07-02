@@ -630,7 +630,7 @@ function! s:HandleChatResponse(delta, is_final)
     call win_gotoid(l:chat_winid)
 
     if s:response_start_line == 0
-      let s:response_start_line = line("$") + 1
+      let s:response_start_line = line("$")
       call append('$', "Claude: ")
     endif
     
@@ -645,11 +645,7 @@ function! s:HandleChatResponse(delta, is_final)
       
       " Append the rest of the new lines
       for l:line in l:new_lines[1:]
-        if l:line !~ '^\s*$'
-          call append('$', l:indent . l:line)
-        else
-          call append('$', '')
-        endif
+        call append('$', l:indent . l:line)
       endfor
     endif
     
