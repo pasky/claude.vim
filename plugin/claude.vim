@@ -353,11 +353,11 @@ function! s:ClaudeImplement(line1, line2, instruction) range
 
   " Prepare the prompt for code implementation
   let l:prompt = "<code>\n" . l:selected_code . "\n</code>\n\n"
-  let l:prompt .= substitute(join(g:claude_implement_prompt, "\n") . "\n", '{{instruction}}', a:instruction, '')
+  let l:prompt .= join(g:claude_implement_prompt, "\n")
 
   " Query Claude
-  let l:messages = [{'role': 'user', 'content': l:prompt}]
-  call s:ClaudeQueryInternal(l:messages, '', function('s:HandleImplementResponse', [a:line1, a:line2, l:bufnr, l:bufname, l:winid, a:instruction]))
+  let l:messages = [{'role': 'user', 'content': a:instruction}]
+  call s:ClaudeQueryInternal(l:messages, l:prompt, function('s:HandleImplementResponse', [a:line1, a:line2, l:bufnr, l:bufname, l:winid, a:instruction]))
 endfunction
 
 function! s:ExtractCodeFromMarkdown(markdown)
