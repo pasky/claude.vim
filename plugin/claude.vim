@@ -498,8 +498,8 @@ function! s:OpenClaudeChat()
     augroup END
 
     " Add mappings for this buffer
-    inoremap <buffer> <C-]> <Esc>:call <SID>SendChatMessage()<CR>
-    nnoremap <buffer> <C-]> :call <SID>SendChatMessage()<CR>
+    inoremap <buffer> <C-]> <Esc>:call <SID>SendChatMessage('Claude:')<CR>
+    nnoremap <buffer> <C-]> :call <SID>SendChatMessage('Claude:')<CR>
   else
     let l:claude_winid = bufwinid(l:claude_bufnr)
     if l:claude_winid == -1
@@ -637,38 +637,6 @@ function! s:GetBuffersContent()
   return l:buffers
 endfunction
 
-function! s:ExtractCodeBlocks(response)
-  let l:blocks = []
-  let l:current_block = []
-  let l:in_code_block = 0
-  let l:current_header = ''
-  let l:start_line = 0
-  let l:line_number = 0
-
-  for line in split(a:response, "\n")
-    let l:line_number += 1
-    if line =~ '^```'
-      if l:in_code_block
-        call add(l:blocks, {'header': l:current_header, 'code': l:current_block, 'start_line': l:start_line, 'end_line': l:line_number - 1})
-        let l:current_block = []
-        let l:current_header = ''
-      else
-        let l:current_header = substitute(line, '^```', '', '')
-        let l:start_line = l:line_number + 1
-      endif
-      let l:in_code_block = !l:in_code_block
-    elseif l:in_code_block
-      call add(l:current_block, line)
-    endif
-  endfor
-
-  if !empty(l:current_block)
-    call add(l:blocks, {'header': l:current_header, 'code': l:current_block, 'start_line': l:start_line, 'end_line': l:line_number})
-  endif
-
-  return l:blocks
-endfunction
-
 function! s:AppendResponse(response)
   let l:response_lines = split(a:response, "\n")
   if len(l:response_lines) == 1
@@ -680,61 +648,89 @@ function! s:AppendResponse(response)
   endif
 endfunction
 
-function! s:ResponseExtractChanges(response, response_start_line)
-  let l:code_blocks = s:ExtractCodeBlocks(a:response)
+function! s:ResponseExtractChanges()
   let l:all_changes = {}
-  let l:applied_blocks = []
 
-  for block in l:code_blocks
-    let l:matches = matchlist(block.header, '^\(\S\+\)\%(\s\+\(\S\+\)\%(:\(.*\)\)\?\)\?$')
-    let l:filetype = get(l:matches, 1, '')
-    let l:buffername = get(l:matches, 2, '')
-    let l:normal_command = get(l:matches, 3, '')
+  " Find the start of the last Claude block
+  normal! G
+  let l:start_line = search('^Claude:', 'b')  " Skip over Claude...:
+  let l:end_line = line('$')
+  let l:markdown_delim = '^' . s:GetClaudeIndent() . '```'
 
-    if empty(l:buffername)
-      echom "Warning: No buffer name specified in code block header"
-      continue
-    endif
+  let l:in_code_block = 0
+  let l:current_block = {'header': '', 'code': [], 'start_line': 0}
 
-    let l:target_bufnr = bufnr(l:buffername)
+  for l:line_num in range(l:start_line, l:end_line)
+    let l:line = getline(l:line_num)
 
-    if l:target_bufnr == -1
-      echom "Warning: Buffer not found for " . l:buffername
-      continue
-    endif
-
-    if !has_key(l:all_changes, l:target_bufnr)
-      let l:all_changes[l:target_bufnr] = []
-    endif
-
-    if l:filetype ==# 'vimexec'
-      call add(l:all_changes[l:target_bufnr], {
-            \ 'type': 'vimexec',
-            \ 'commands': block.code
-            \ })
-    else
-      if empty(l:normal_command)
-        " By default, append to the end of file
-        let l:normal_command = 'Go<CR>'
+    if l:line =~ l:markdown_delim
+      if ! l:in_code_block
+        " Start of code block
+        let l:current_block = {'header': substitute(l:line, l:markdown_delim, '', ''), 'code': [], 'start_line': l:line_num + 1}
+        let l:in_code_block = 1
+      else
+        " End of code block
+        let l:current_block.end_line = l:line_num
+        call s:ProcessCodeBlock(l:current_block, l:all_changes)
+        let l:in_code_block = 0
       endif
-
-      call add(l:all_changes[l:target_bufnr], {
-            \ 'type': 'content',
-            \ 'normal_command': l:normal_command,
-            \ 'content': join(block.code, "\n")
-            \ })
+    elseif l:in_code_block
+      call add(l:current_block.code, substitute(l:line, '^' . s:GetClaudeIndent(), '', ''))
     endif
-    
-    let l:block_start = a:response_start_line + block.start_line - 1
-    let l:block_end = a:response_start_line + block.end_line + 1
-    call add(l:applied_blocks, [l:block_start, l:block_end])
-
-    " Mark the applied code block
-    let l:indent = s:GetClaudeIndent()
-    call setline(l:block_start, l:indent . '```' . block.header . ' [APPLIED]')
   endfor
 
-  return [l:all_changes, l:applied_blocks]
+  " Process any remaining open code block
+  if l:in_code_block
+    let l:current_block.end_line = l:end_line
+    call s:ProcessCodeBlock(l:current_block, l:all_changes)
+  endif
+
+  return l:all_changes
+endfunction
+
+function! s:ProcessCodeBlock(block, all_changes)
+  let l:matches = matchlist(a:block.header, '^\(\S\+\)\%(\s\+\(\S\+\)\%(:\(.*\)\)\?\)\?$')
+  let l:filetype = get(l:matches, 1, '')
+  let l:buffername = get(l:matches, 2, '')
+  let l:normal_command = get(l:matches, 3, '')
+
+  if empty(l:buffername)
+    echom "Warning: No buffer name specified in code block header"
+    return
+  endif
+
+  let l:target_bufnr = bufnr(l:buffername)
+
+  if l:target_bufnr == -1
+    echom "Warning: Buffer not found for " . l:buffername
+    return
+  endif
+
+  if !has_key(a:all_changes, l:target_bufnr)
+    let a:all_changes[l:target_bufnr] = []
+  endif
+
+  if l:filetype ==# 'vimexec'
+    call add(a:all_changes[l:target_bufnr], {
+          \ 'type': 'vimexec',
+          \ 'commands': a:block.code
+          \ })
+  else
+    if empty(l:normal_command)
+      " By default, append to the end of file
+      let l:normal_command = 'Go<CR>'
+    endif
+
+    call add(a:all_changes[l:target_bufnr], {
+          \ 'type': 'content',
+          \ 'normal_command': l:normal_command,
+          \ 'content': join(a:block.code, "\n")
+          \ })
+  endif
+
+  " Mark the applied code block
+  let l:indent = s:GetClaudeIndent()
+  call setline(a:block.start_line - 1, l:indent . '```' . a:block.header . ' [APPLIED]')
 endfunction
 
 function! s:ClosePreviousFold()
@@ -777,7 +773,7 @@ function! s:PrepareNextInput()
   normal! G$
 endfunction
 
-function! s:SendChatMessage()
+function! s:SendChatMessage(prefix)
   let [l:messages, l:system_prompt] = s:ParseChatBuffer()
 
   let l:buffer_contents = s:GetBuffersContent()
@@ -787,6 +783,8 @@ function! s:SendChatMessage()
     let l:system_prompt .= "Contents:\n" . buffer.contents . "\n\n"
     let l:system_prompt .= "============================\n\n"
   endfor
+
+  call append('$', a:prefix . " ")
 
   let l:job = s:ClaudeQueryInternal(l:messages, l:system_prompt, function('s:HandleChatResponse'))
 
@@ -798,7 +796,7 @@ function! s:SendChatMessage()
   endif
 endfunction
 
-function! s:ParseLastClaudeBlockForToolUses()
+function! s:ResponseExtractToolUses()
   let l:tool_uses = []
   let l:in_tool_use = 0
   let l:current_tool_use = {}
@@ -829,34 +827,18 @@ function! s:ParseLastClaudeBlockForToolUses()
 endfunction
 
 function! s:HandleChatResponse(delta, is_final)
-  if !exists("s:current_response")
-    let s:current_response = ""
-    let s:response_start_line = 0
-  endif
-
-  let s:current_response .= a:delta
-
   let [l:chat_bufnr, l:chat_winid, l:current_winid] = s:GetOrCreateChatWindow()
   call win_gotoid(l:chat_winid)
-
-  if s:response_start_line == 0
-    let s:response_start_line = line("$")
-    call append('$', "Claude: ")
-  endif
 
   let l:indent = s:GetClaudeIndent()
   let l:new_lines = split(a:delta, "\n", 1)
 
-  " Append new content to the buffer
   if len(l:new_lines) > 0
     " Update the last line with the first segment of the delta
     let l:last_line = getline('$')
     call setline('$', l:last_line . l:new_lines[0])
 
-    " Append the rest of the new lines
-    for l:line in l:new_lines[1:]
-      call append('$', l:indent . l:line)
-    endfor
+    call append('$', map(l:new_lines[1:], {_, v -> l:indent . v}))
   endif
 
   normal! G
@@ -864,18 +846,16 @@ function! s:HandleChatResponse(delta, is_final)
 
   if a:is_final
     call win_gotoid(l:chat_winid)
-    let l:tool_uses = s:ParseLastClaudeBlockForToolUses()
+    let l:tool_uses = s:ResponseExtractToolUses()
 
     if !empty(l:tool_uses)
       for l:tool_use in l:tool_uses
         let l:tool_result = s:ExecuteTool(l:tool_use.name, l:tool_use.input)
         call s:AppendToolResult(l:tool_use.id, l:tool_result)
       endfor
-      call s:SendChatMessage()
-      call append('$', 'Claude...:')
-
+      call s:SendChatMessage('Claude...:')
     else
-      let [l:all_changes, l:applied_blocks] = s:ResponseExtractChanges(s:current_response, s:response_start_line)
+      let l:all_changes = s:ResponseExtractChanges()
       call s:ClosePreviousFold()
       call s:CloseCurrentInteractionCodeBlocks()
       call s:PrepareNextInput()
@@ -887,9 +867,6 @@ function! s:HandleChatResponse(delta, is_final)
           call s:ApplyCodeChangesDiff(str2nr(l:target_bufnr), l:changes)
         endfor
       endif
-
-      unlet s:current_response
-      unlet s:response_start_line
     endif
     unlet! s:current_chat_job
   endif
@@ -932,7 +909,7 @@ command! ClaudeCancel call s:CancelClaudeResponse()
 command! ClaudeChat call s:OpenClaudeChat()
 
 " Command to send message in normal mode
-command! ClaudeSend call <SID>SendChatMessage()
+command! ClaudeSend call <SID>SendChatMessage('Claude:')
 
 " Optional: Key mapping
 nnoremap <Leader>cc :ClaudeChat<CR>
