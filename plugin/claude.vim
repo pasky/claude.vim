@@ -53,6 +53,7 @@ if !exists('g:claude_default_system_prompt')
         \ '  ```',
         \ '  - You can use any vim key sequence if you are very sure - e.g. `/^function! s:Example(/<CR>O` will prepend your new code above the specific function. Note that the sequence is executed in normal mode, not exmode.',
         \ '  (when rewriting code, pick the smallest unit of code you can unambiguously reference)',
+        \ '- TOOLS: Do not use the Python tool to extract content that you can find on your own in the "Contents of open buffers" section.',
         \ ]
 endif
 
@@ -86,7 +87,7 @@ function! s:ClaudeQueryInternal(messages, system_prompt, callback)
       \ 'tools': [
       \   {
       \     'name': 'python',
-      \     'description': 'Execute a Python one-liner code snippet and return the standard output. Use it only in cases where a Python program will generate a more reliable or precise response than you could on your own. Particularly, NEVER just print a constant or use Python to load a file that is already part of your context.',
+      \     'description': 'Execute a Python one-liner code snippet and return the standard output. NEVER just print a constant or use Python to load the file whose buffer you already see. Use the tool only in cases where a Python program will generate a reliable, precise response than you cannot realistically produce on your own.',
       \     'input_schema': {
       \       'type': 'object',
       \       'properties': {
@@ -731,11 +732,11 @@ function! s:SendChatMessage()
   let [l:messages, l:system_prompt] = s:ParseChatBuffer()
 
   let l:buffer_contents = s:GetBuffersContent()
-  let l:system_prompt .= "\n\nContents of open buffers:\n\n"
+  let l:system_prompt .= "\n\n# Contents of open buffers\n\n"
   for buffer in l:buffer_contents
-    let l:system_prompt .= "============================\n"
     let l:system_prompt .= "Buffer: " . buffer.name . "\n"
     let l:system_prompt .= "Contents:\n" . buffer.contents . "\n\n"
+    let l:system_prompt .= "============================\n\n"
   endfor
 
   let l:job = s:ClaudeQueryInternal(l:messages, l:system_prompt, function('s:HandleChatResponse'))
