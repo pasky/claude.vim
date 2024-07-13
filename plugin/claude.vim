@@ -576,7 +576,7 @@ function! s:ProcessLine(line, messages, current_role, current_content, in_tool_u
     elseif l:new_in_tool_result
       let l:new_tool_result.content .= (empty(l:new_tool_result.content) ? '' : "\n") . substitute(a:line, '^' . l:indent, '', '')
     else
-      call add(l:new_content, substitute(a:line, '^' . l:indent, '', ''))
+      call add(l:new_content, substitute(substitute(a:line, '^' . l:indent, '', ''), '\s*\[APPLIED\]$', '', ''))
     endif
   endif
 
