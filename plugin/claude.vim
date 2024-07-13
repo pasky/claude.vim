@@ -53,6 +53,12 @@ if !exists('g:claude_default_system_prompt')
         \ '  ```',
         \ '  - You can use any vim key sequence if you are very sure - e.g. `/^function! s:Example(/<CR>O` will prepend your new code above the specific function. Note that the sequence is executed in normal mode, not exmode.',
         \ '  (when rewriting code, pick the smallest unit of code you can unambiguously reference)',
+        \ '- EDITING: For complex refactorings or more targetted changes, you can also execute specific vim commands to modify a buffer. Use this format:',
+        \ '  ```vimexec buffername',
+        \ '  :%s/example/foobarbaz/g',
+        \ '  ... more vim commands ...',
+        \ '  ```',
+        \ '  These commands will be executed on the buffer after applying previous code changes, and before applying further code changes. DO NOT apply previously proposed ``` suggested code changes using vimexec, these will be applied automatically.',
         \ '- TOOLS: Do not use the Python tool to extract content that you can find on your own in the "Contents of open buffers" section.',
         \ ]
 endif
@@ -257,7 +263,13 @@ function! s:ApplyCodeChangesDiff(bufnr, changes)
 
   " Apply all changes
   for change in a:changes
-    call s:ApplyChange(change.normal_command, change.content)
+    if change.type == 'content'
+      call s:ApplyChange(change.normal_command, change.content)
+    elseif change.type == 'vimexec'
+      for cmd in change.commands
+        execute cmd
+      endfor
+    endif
   endfor
 
   " Set up diff for both windows
@@ -655,11 +667,6 @@ function! s:ResponseExtractChanges(response, response_start_line)
       continue
     endif
 
-    if empty(l:normal_command)
-      " By default, append to the end of file
-      let l:normal_command = 'Go<CR>'
-    endif
-
     let l:target_bufnr = bufnr(l:buffername)
 
     if l:target_bufnr == -1
@@ -671,10 +678,23 @@ function! s:ResponseExtractChanges(response, response_start_line)
       let l:all_changes[l:target_bufnr] = []
     endif
 
-    call add(l:all_changes[l:target_bufnr], {
-          \ 'normal_command': l:normal_command,
-          \ 'content': join(block.code, "\n")
-          \ })
+    if l:filetype ==# 'vimexec'
+      call add(l:all_changes[l:target_bufnr], {
+            \ 'type': 'vimexec',
+            \ 'commands': block.code
+            \ })
+    else
+      if empty(l:normal_command)
+        " By default, append to the end of file
+        let l:normal_command = 'Go<CR>'
+      endif
+
+      call add(l:all_changes[l:target_bufnr], {
+            \ 'type': 'content',
+            \ 'normal_command': l:normal_command,
+            \ 'content': join(block.code, "\n")
+            \ })
+    endif
     
     let l:block_start = a:response_start_line + block.start_line - 1
     let l:block_end = a:response_start_line + block.end_line + 1
