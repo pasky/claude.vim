@@ -516,15 +516,15 @@ function! s:GoToLastYouLine()
   normal! G$
 endfunction
 
-function! s:AddMessageToList(messages, role, content, tool_use, tool_result)
+function! s:AddMessageToList(messages, message)
   " FIXME: Handle multiple tool_use, tool_result blocks at once
-  if !empty(a:role)
-    let l:message = {'role': a:role, 'content': join(a:content, "\n")}
-    if !empty(a:tool_use)
-      let l:message['content'] = [{'type': 'text', 'text': l:message.content}, a:tool_use]
+  if !empty(a:message.role)
+    let l:message = {'role': a:message.role, 'content': join(a:message.content, "\n")}
+    if !empty(a:message.tool_use)
+      let l:message['content'] = [{'type': 'text', 'text': l:message.content}, a:message.tool_use]
     endif
-    if !empty(a:tool_result)
-      let l:message['content'] = [a:tool_result]
+    if !empty(a:message.tool_result)
+      let l:message['content'] = [a:message.tool_result]
     endif
     call add(a:messages, l:message)
   endif
@@ -533,14 +533,9 @@ endfunction
 function! s:ParseChatBuffer()
   let l:buffer_content = getline(1, '$')
   let l:messages = []
-  let l:current_role = ''
-  let l:current_content = []
+  let l:current_message = {'role': '', 'content': [], 'tool_use': {}, 'tool_result': {}}
   let l:system_prompt = []
   let l:in_system_prompt = 0
-  let l:in_tool_use = 0
-  let l:in_tool_result = 0
-  let l:tool_use = {}
-  let l:tool_result = {}
 
   for line in l:buffer_content
     if line =~ '^System prompt:'
@@ -550,68 +545,84 @@ function! s:ParseChatBuffer()
       call add(l:system_prompt, substitute(line, '^\s*', '', ''))
     else
       let l:in_system_prompt = 0
-      let [l:current_role, l:current_content, l:in_tool_use, l:in_tool_result, l:tool_use, l:tool_result] = s:ProcessLine(line, l:messages, l:current_role, l:current_content, l:in_tool_use, l:in_tool_result, l:tool_use, l:tool_result)
+      let l:current_message = s:ProcessLine(line, l:messages, l:current_message)
     endif
   endfor
 
-  if !empty(l:current_role)
-    call s:AddMessageToList(l:messages, l:current_role, l:current_content, l:tool_use, l:tool_result)
+  if !empty(l:current_message.role)
+    call s:AddMessageToList(l:messages, l:current_message)
   endif
 
   return [filter(l:messages, {_, v -> !empty(v.content)}), join(l:system_prompt, "\n")]
 endfunction
 
-function! s:ProcessLine(line, messages, current_role, current_content, in_tool_use, in_tool_result, tool_use, tool_result)
-  let l:new_role = a:current_role
-  let l:new_content = copy(a:current_content)
-  let l:new_in_tool_use = a:in_tool_use
-  let l:new_in_tool_result = a:in_tool_result
-  let l:new_tool_use = a:tool_use
-  let l:new_tool_result = a:tool_result
+function! s:ProcessLine(line, messages, current_message)
+  let l:new_message = copy(a:current_message)
 
   if a:line =~ '^You:'
-    call s:AddMessageToList(a:messages, l:new_role, a:current_content, l:new_tool_use, l:new_tool_result)
-    let l:new_role = 'user'
-    let l:new_content = [substitute(a:line, '^You:\s*', '', '')]
-    let l:new_in_tool_use = 0
-    let l:new_in_tool_result = 0
-    let l:new_tool_use = {}
-    let l:new_tool_result = {}
+    call s:AddMessageToList(a:messages, l:new_message)
+    let l:new_message = s:InitMessage('user', a:line)
   elseif a:line =~ '^Claude'  " both Claude: and Claude...:
-    call s:AddMessageToList(a:messages, l:new_role, a:current_content, l:new_tool_use, l:new_tool_result)
-    let l:new_role = 'assistant'
-    let l:new_content = [substitute(a:line, '^Claude\S*\s*', '', '')]
-    let l:new_in_tool_use = 0
-    let l:new_in_tool_result = 0
-    let l:new_tool_use = {}
-    let l:new_tool_result = {}
+    call s:AddMessageToList(a:messages, l:new_message)
+    let l:new_message = s:InitMessage('assistant', a:line)
   elseif a:line =~ '^Tool use ('
-    let l:new_in_tool_use = 1
-    let l:new_tool_use = {'type': 'tool_use', 'id': substitute(a:line, '^Tool use (\(.*\)):.*$', '\1', ''), 'name': '', 'input': {}}
+    let l:new_message.tool_use = s:ParseToolUse(a:line)
   elseif a:line =~ '^Tool result ('
-    call s:AddMessageToList(a:messages, l:new_role, a:current_content, l:new_tool_use, l:new_tool_result)
-    let l:new_role = 'user'
-    let l:new_in_tool_use = 0
-    let l:new_in_tool_result = 1
-    let l:new_tool_use = {}
-    let l:new_tool_result = {'type': 'tool_result', 'tool_use_id': substitute(a:line, '^Tool result (\(.*\)):.*$', '\1', ''), 'content': ''}
-    let l:new_content = []
-  elseif !empty(l:new_role)
-    let l:indent = s:GetClaudeIndent()
-    if l:new_in_tool_use
-      if a:line =~ '^\s*Name:'
-        let l:new_tool_use.name = substitute(a:line, '^\s*Name:\s*', '', '')
-      elseif a:line =~ '^\s*Input:'
-        let l:new_tool_use.input = json_decode(substitute(a:line, '^\s*Input:\s*', '', ''))
-      endif
-    elseif l:new_in_tool_result
-      let l:new_tool_result.content .= (empty(l:new_tool_result.content) ? '' : "\n") . substitute(a:line, '^' . l:indent, '', '')
-    else
-      call add(l:new_content, substitute(substitute(a:line, '^' . l:indent, '', ''), '\s*\[APPLIED\]$', '', ''))
-    endif
+    call s:AddMessageToList(a:messages, l:new_message)
+    let l:new_message = s:InitToolResult(a:line)
+  elseif !empty(l:new_message.role)
+    call s:AppendContent(l:new_message, a:line)
   endif
 
-  return [l:new_role, l:new_content, l:new_in_tool_use, l:new_in_tool_result, l:new_tool_use, l:new_tool_result]
+  return l:new_message
+endfunction
+
+function! s:InitMessage(role, line)
+  return {
+    \ 'role': a:role,
+    \ 'content': [substitute(a:line, '^' . a:role . '\S*\s*', '', '')],
+    \ 'tool_use': {},
+    \ 'tool_result': {}
+  \ }
+endfunction
+
+function! s:ParseToolUse(line)
+  let l:match = matchlist(a:line, '^Tool use (\(.*\)):')
+  return {
+    \ 'type': 'tool_use',
+    \ 'id': l:match[1],
+    \ 'name': '',
+    \ 'input': {}
+  \ }
+endfunction
+
+function! s:InitToolResult(line)
+  let l:match = matchlist(a:line, '^Tool result (\(.*\)):')
+  return {
+    \ 'role': 'user',
+    \ 'content': [],
+    \ 'tool_use': {},
+    \ 'tool_result': {
+      \ 'type': 'tool_result',
+      \ 'tool_use_id': l:match[1],
+      \ 'content': ''
+    \ }
+  \ }
+endfunction
+
+function! s:AppendContent(message, line)
+  let l:indent = s:GetClaudeIndent()
+  if !empty(a:message.tool_use)
+    if a:line =~ '^\s*Name:'
+      let a:message.tool_use.name = substitute(a:line, '^\s*Name:\s*', '', '')
+    elseif a:line =~ '^\s*Input:'
+      let a:message.tool_use.input = json_decode(substitute(a:line, '^\s*Input:\s*', '', ''))
+    endif
+  elseif !empty(a:message.tool_result)
+    let a:message.tool_result.content .= (empty(a:message.tool_result.content) ? '' : "\n") . substitute(a:line, '^' . l:indent, '', '')
+  else
+    call add(a:message.content, substitute(substitute(a:line, '^' . l:indent, '', ''), '\s*\[APPLIED\]$', '', ''))
+  endif
 endfunction
 
 function! s:GetBuffersContent()
