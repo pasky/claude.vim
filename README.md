@@ -25,6 +25,11 @@ You can ask it to modify or extend just a selected piece of your code:
 
 https://github.com/pasky/claude.vim/assets/18439/71544b57-e87d-4dd4-a7e6-4051fa080d18
 
+It can also (with your case-by-case consent) evaluate Python expression when figuring
+out what you asked:
+
+https://pbs.twimg.com/media/GSVCJ7pWsAA7Afs?format=png&name=4096x4096
+
 Note that about 95% of the code of this plugin has been written by Claude
 Sonnet 3.5, and most of the time already "self-hosted" within the plugin.
 
