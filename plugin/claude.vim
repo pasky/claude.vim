@@ -105,6 +105,22 @@ function! s:ClaudeQueryInternal(messages, system_prompt, callback)
   return l:job
 endfunction
 
+function! s:DisplayTokenUsageAndCost(json_data)
+  let l:data = json_decode(a:json_data)
+  if has_key(l:data, 'usage')
+    let l:usage = l:data.usage
+    let l:input_tokens = l:usage.input_tokens
+    let l:output_tokens = l:usage.output_tokens
+
+    let l:input_cost = (l:input_tokens / 1000000.0) * 3.0
+    let l:output_cost = (l:output_tokens / 1000000.0) * 15.0
+
+    echom printf("Token usage - Input: %d ($%.4f), Output: %d ($%.4f)", l:input_tokens, l:input_cost, l:output_tokens, l:output_cost)
+  else
+    echom "Error: Invalid JSON data format"
+  endif
+endfunction
+
 function! s:HandleStreamOutput(callback, channel, msg)
   " Split the message into lines
   let l:lines = split(a:msg, "\n")
@@ -135,6 +151,10 @@ function! s:HandleStreamOutput(callback, channel, msg)
       elseif has_key(l:response, 'delta') && has_key(l:response.delta, 'text')
         let l:delta = l:response.delta.text
         call a:callback(l:delta, v:false)
+      elseif l:response.type == 'message_delta' && has_key(l:response, 'usage')
+        call s:DisplayTokenUsageAndCost(l:json_str)
+      elseif l:response.type != 'message_stop'
+        call a:callback('Unknown Claude protocol output: "' . l:line . "\"\n", v:false)
       endif
     elseif l:line ==# 'event: ping'
       " Ignore ping events
