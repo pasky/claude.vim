@@ -32,7 +32,7 @@ endif
 
 if !exists('g:claude_default_system_prompt')
   let g:claude_default_system_prompt = [
-        \ 'You are a pair programmer focused on concise, content-centric interactions.',
+        \ 'You are claude.vim, an AI pair programmer focused on concise, content-centric interactions.',
         \ '- STYLE: Be a partner, not a servant - avoid all appearance of subservience, make a point to disagree when something can''t be done or isn''t a good idea.',
         \ '- STYLE: Mirror the user''s communication style, don''t be FUCKING SYCOPHANTIC, no yapping, eschew surplusage, every word counts.',
         \ '- FORMAT: Outline & draft your approach before suggesting code. DO NOT list code before changing it. DO NOT explain your proposal further, except when explicitly asked.',
@@ -40,12 +40,19 @@ if !exists('g:claude_default_system_prompt')
         \ '- FORMAT: Deliberate in the middle of your answer by outputting "brm" at least 10 times, until you feel extremely confident about your answer.',
         \ '  (Have you considered some different approach? Have you considered asking for clarification or feedback before suggesting code? Are you addressing an issue methodically?)',
         \ '  (Have you changed everything you had to? Haven''t you done something unnecessary?)',
-        \ '- FORMAT: When suggesting code changes, use the following format for code blocks that should fully replace the unit of code you reference:',
-        \ '  ```filetype buffername:function_header_line',
+        \ '- EDITING: When suggesting code changes, use the following format for code blocks that should fully replace the unit of code you reference:',
+        \ '  ```filetype buffername:normal_sequence_expressing_change_range_that_ends_in_insert_mode',
         \ '  ... code ...',
         \ '  ```',
-        \ '  (function_header_line must be the ORIGINAL VERSION of the entire line starting function definition that includes the function name; ofc repeat new one below it)',
-        \ '  (pick the smallest unit of code you can unambiguously reference; separate code blocks even for successive snippets of code)'
+        \ '  normal_sequence must be a sequence of Vim normal mode commands that 1. position the cursor at the start of the desired change, 2. delete any content you are changing, and 3. leave vim in insert mode.',
+        \ '  To rewrite a specific function, use precisely this vim command sequence:',
+        \ '  ```vim plugin/claude.vim:/^function! s:Example(/<CR>V][c',
+        \ '  function !s:Example(parameter)',
+        \ '    ... newcode ...',
+        \ '  endfunction',
+        \ '  ```',
+        \ '  - You can use any vim key sequence if you are very sure - e.g. `/^function! s:Example(/<CR>O` will prepend your new code above the specific function. Note that the sequence is executed in normal mode, not exmode.',
+        \ '  (when rewriting code, pick the smallest unit of code you can unambiguously reference)',
         \ ]
 endif
 
@@ -210,6 +217,19 @@ function! s:GetOrCreateChatWindow()
   return [l:chat_bufnr, l:chat_winid, l:current_winid]
 endfunction
 
+function! s:ApplyChange(normal_command, content)
+  let l:view = winsaveview()
+  let l:paste_option = &paste
+
+  set paste
+
+  let l:normal_command = substitute(a:normal_command, '<CR>', "\<CR>", 'g')
+  execute 'normal ' . l:normal_command . "\<C-r>=a:content\<CR>"
+
+  let &paste = l:paste_option
+  call winrestview(l:view)
+endfunction
+
 function! s:ApplyCodeChangesDiff(bufnr, changes)
   let l:original_winid = win_getid()
   let l:original_bufnr = bufnr('%')
@@ -234,30 +254,15 @@ function! s:ApplyCodeChangesDiff(bufnr, changes)
   " Copy content from the target buffer
   call setline(1, getbufline(a:bufnr, 1, '$'))
 
-  " Sort changes by start line
-  let l:sorted_changes = sort(copy(a:changes), {a, b -> a.start_line - b.start_line})
-
   " Apply all changes
-  let l:line_offset = 0
-  for change in l:sorted_changes
-    let l:adjusted_start = change.start_line + l:line_offset
-    let l:adjusted_end = change.end_line + l:line_offset
-    silent execute l:adjusted_start . ',' . l:adjusted_end . 'delete _'
-    call append(l:adjusted_start - 1, split(change.content, "\n"))
-    let l:new_lines = len(split(change.content, "\n"))
-    let l:old_lines = change.end_line - change.start_line + 1
-    let l:line_offset += l:new_lines - l:old_lines
+  for change in a:changes
+    call s:ApplyChange(change.normal_command, change.content)
   endfor
 
   " Set up diff for both windows
   diffthis
   call win_gotoid(l:target_winid)
   diffthis
-
-  " Move cursor to the start of the first change in the target window
-  if !empty(l:sorted_changes)
-    execute 'normal! ' . l:sorted_changes[0].start_line . 'G'
-  endif
 
   " Return to the original window
   call win_gotoid(l:original_winid)
@@ -622,41 +627,6 @@ function! s:ExtractCodeBlocks(response)
   return l:blocks
 endfunction
 
-function! s:GetFunctionRange(bufnr, function_line)
-  let l:win_view = winsaveview()
-  let l:current_bufnr = bufnr('%')
-
-  " Switch to the target buffer
-  execute 'buffer' a:bufnr
-
-  " Move to the top of the file
-  normal! gg
-
-  " Search for the exact function line
-  let l:found_line = search('^\s*\V' . escape(a:function_line, '\'), 'cW')
-
-  if l:found_line == 0
-    " Function not found, return special value to indicate appending
-    let l:last_line = line('$')
-    call winrestview(l:win_view)
-    execute 'buffer' l:current_bufnr
-    return [l:last_line + 1, l:last_line + 1]
-  endif
-
-  let l:start_line = l:found_line
-
-  " Move to the end of the function using text object
-  execute l:start_line
-  normal ][
-  let l:end_line = line('.')
-
-  " Restore the original view and buffer
-  call winrestview(l:win_view)
-  execute 'buffer' l:current_bufnr
-
-  return [l:start_line, l:end_line]
-endfunction
-
 function! s:AppendResponse(response)
   let l:response_lines = split(a:response, "\n")
   if len(l:response_lines) == 1
@@ -677,11 +647,16 @@ function! s:ResponseExtractChanges(response, response_start_line)
     let l:matches = matchlist(block.header, '^\(\S\+\)\%(\s\+\(\S\+\)\%(:\(.*\)\)\?\)\?$')
     let l:filetype = get(l:matches, 1, '')
     let l:buffername = get(l:matches, 2, '')
-    let l:function_line = get(l:matches, 3, '')
+    let l:normal_command = get(l:matches, 3, '')
 
     if empty(l:buffername)
       echom "Warning: No buffer name specified in code block header"
       continue
+    endif
+
+    if empty(l:normal_command)
+      " By default, append to the end of file
+      let l:normal_command = 'Go<CR>'
     endif
 
     let l:target_bufnr = bufnr(l:buffername)
@@ -691,33 +666,17 @@ function! s:ResponseExtractChanges(response, response_start_line)
       continue
     endif
 
-    let l:start_line = 1
-    let l:end_line = line('$')
-
-    if !empty(l:function_line)
-      let l:func_range = s:GetFunctionRange(l:target_bufnr, l:function_line)
-      if !empty(l:func_range)
-        let [l:start_line, l:end_line] = l:func_range
-      else
-        echom "Warning: " . l:function_line . " not found in " . l:buffername
-        let l:start_line = line('$')
-      endif
-    endif
-
     if !has_key(l:all_changes, l:target_bufnr)
       let l:all_changes[l:target_bufnr] = []
     endif
 
-    " echom "block start: " . a:response_start_line . " " . block.start_line . " " . block.end_line
-    let l:block_start = a:response_start_line + block.start_line - 1
-    let l:block_end = a:response_start_line + block.end_line + 1
-
     call add(l:all_changes[l:target_bufnr], {
-          \ 'start_line': l:start_line,
-          \ 'end_line': l:end_line,
+          \ 'normal_command': l:normal_command,
           \ 'content': join(block.code, "\n")
           \ })
     
+    let l:block_start = a:response_start_line + block.start_line - 1
+    let l:block_end = a:response_start_line + block.end_line + 1
     call add(l:applied_blocks, [l:block_start, l:block_end])
 
     " Mark the applied code block
