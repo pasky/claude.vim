@@ -90,22 +90,7 @@ function! s:ClaudeQueryInternal(messages, system_prompt, callback)
       \ 'model': g:claude_model,
       \ 'max_tokens': 2048,
       \ 'messages': a:messages,
-      \ 'tools': [
-      \   {
-      \     'name': 'python',
-      \     'description': 'Execute a Python one-liner code snippet and return the standard output. NEVER just print a constant or use Python to load the file whose buffer you already see. Use the tool only in cases where a Python program will generate a reliable, precise response than you cannot realistically produce on your own.',
-      \     'input_schema': {
-      \       'type': 'object',
-      \       'properties': {
-      \         'code': {
-      \           'type': 'string',
-      \           'description': 'The Python one-liner code to execute. Wrap the final expression in `print` to see its result - otherwise, output will be empty.'
-      \         }
-      \       },
-      \       'required': ['code']
-      \     }
-      \   }
-      \ ],
+      \ 'tools': g:claude_tools,
       \ 'stream': v:true
       \ }
     if !empty(a:system_prompt)
@@ -280,6 +265,25 @@ function! s:ApplyCodeChangesDiff(bufnr, changes)
   " Return to the original window
   call win_gotoid(l:original_winid)
 endfunction
+
+if !exists('g:claude_tools')
+  let g:claude_tools = [
+    \ {
+    \   'name': 'python',
+    \   'description': 'Execute a Python one-liner code snippet and return the standard output. NEVER just print a constant or use Python to load the file whose buffer you already see. Use the tool only in cases where a Python program will generate a reliable, precise response than you cannot realistically produce on your own.',
+    \   'input_schema': {
+    \     'type': 'object',
+    \     'properties': {
+    \       'code': {
+    \         'type': 'string',
+    \         'description': 'The Python one-liner code to execute. Wrap the final expression in `print` to see its result - otherwise, output will be empty.'
+    \       }
+    \     },
+    \     'required': ['code']
+    \   }
+    \ }
+  \ ]
+endif
 
 function! s:ExecuteTool(tool_name, arguments)
   if a:tool_name == 'python'
