@@ -32,7 +32,7 @@ endif
 
 if !exists('g:claude_default_system_prompt')
   let g:claude_default_system_prompt = [
-        \ 'You are claude.vim, an AI pair programmer focused on concise, content-centric interactions.',
+        \ 'You are claude.vim, the world best AI pair programmer focused on concise, content-centric interactions.',
         \ '- STYLE: Be a partner, not a servant - avoid all appearance of subservience, make a point to disagree when something can''t be done or isn''t a good idea.',
         \ '- STYLE: Mirror the user''s communication style, don''t be FUCKING SYCOPHANTIC, no yapping, eschew surplusage, every word counts.',
         \ '- FORMAT: Outline & draft your approach before suggesting code. DO NOT list code before changing it. DO NOT explain your proposal further, except when explicitly asked.',
@@ -302,7 +302,7 @@ endfunction
 
 """""""""""""""""""""""""""""""""""""
 
-function! s:LogImplementInChat(instruction, implemented_code, bufname, start_line, end_line)
+function! s:LogImplementInChat(instruction, implement_response, bufname, start_line, end_line)
   let [l:chat_bufnr, l:chat_winid, l:current_winid] = s:GetOrCreateChatWindow()
 
   let start_line_text = getline(a:start_line)
@@ -326,7 +326,7 @@ function! s:LogImplementInChat(instruction, implemented_code, bufname, start_lin
     if a:end_line - a:start_line > 0
       call append('$', l:indent . end_line_text)
     endif
-    call s:AppendResponse("```\n" . a:implemented_code . "\n```")
+    call s:AppendResponse(a:implement_response)
     call s:ClosePreviousFold()
     call s:CloseCurrentInteractionCodeBlocks()
     call s:PrepareNextInput()
@@ -344,13 +344,34 @@ function! s:ClaudeImplement(line1, line2, instruction) range
   let l:winid = win_getid()
 
   " Prepare the prompt for code implementation
-  let l:prompt = "Here's the original code:\n\n" . l:selected_code . "\n\n"
-  let l:prompt .= "Instruction: " . a:instruction . "\n\n"
-  let l:prompt .= "Please rewrite the code based on the above instruction. Reply precisely in the format 'Rewritten code:\\n\\n...code...', nothing else (not even markdown). Preserve the original indentation."
+  let l:prompt = "<code>\n" . l:selected_code . "\n</code>\n\n"
+  let l:prompt .= "You are claude.vim, the world's best AI pair programmer focused on concise, content-centric interactions."
+  let l:prompt .= "Implement this improvement in the provided code: " . a:instruction . "\n\n"
+  let l:prompt .= "Before you write the updated code, think step by step in the <thinking></thinking> tags:\n"
+  let l:prompt .= "1. What is the biggest obstacle to achieve the goal?\n"
+  let l:prompt .= "2. What are the alternatives and their pros/cons.\n"
+  let l:prompt .= "3. For each pro/con, add an additional 'why is it true' sentence.\n"
+  let l:prompt .= "4. Then make your decision.\n"
+  let l:prompt .= "Once you are done thinking, write the code in a ```...``` markdown code block. Preserve the original indentation in your code.\n"
+  let l:prompt .= "No more comments are required from you after the code block, noone will read them.\n"
 
   " Query Claude
   let l:messages = [{'role': 'user', 'content': l:prompt}]
   call s:ClaudeQueryInternal(l:messages, '', function('s:HandleImplementResponse', [a:line1, a:line2, l:bufnr, l:bufname, l:winid, a:instruction]))
+endfunction
+
+function! s:ExtractCodeFromMarkdown(markdown)
+  let l:lines = split(a:markdown, "\n")
+  let l:in_code_block = 0
+  let l:code = []
+  for l:line in l:lines
+    if l:line =~ '^```'
+      let l:in_code_block = !l:in_code_block
+    elseif l:in_code_block
+      call add(l:code, l:line)
+    endif
+  endfor
+  return join(l:code, "\n")
 endfunction
 
 function! s:HandleImplementResponse(line1, line2, bufnr, bufname, winid, instruction, delta, is_final)
@@ -363,19 +384,16 @@ function! s:HandleImplementResponse(line1, line2, bufnr, bufname, winid, instruc
   if a:is_final
     call win_gotoid(a:winid)
 
-    " Parse the implemented code from the response
-    let l:implemented_code = substitute(s:implement_response, '^Rewritten code:\n\n', '', '')
+    call s:LogImplementInChat(a:instruction, s:implement_response, a:bufname, a:line1, a:line2)
 
-    " Apply the changes
+    let l:implemented_code = s:ExtractCodeFromMarkdown(s:implement_response)
+
     let l:changes = [{
-      \ 'start_line': a:line1,
-      \ 'end_line': a:line2,
+      \ 'type': 'content',
+      \ 'normal_command': a:line1 . 'GV' . a:line2 . 'Gc',
       \ 'content': l:implemented_code
       \ }]
     call s:ApplyCodeChangesDiff(a:bufnr, l:changes)
-
-    " Log the interaction in the chat buffer
-    call s:LogImplementInChat(a:instruction, l:implemented_code, a:bufname, a:line1, a:line2)
 
     echomsg "Apply diff, see :help diffget. Close diff buffer with :q."
 
