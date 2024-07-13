@@ -79,13 +79,13 @@ function! s:ClaudeQueryInternal(messages, system_prompt, callback)
       \ 'tools': [
       \   {
       \     'name': 'python',
-      \     'description': 'Execute a Python one-liner code snippet and return the standard output.',
+      \     'description': 'Execute a Python one-liner code snippet and return the standard output. Use it only in cases where a Python program will generate a more reliable or precise response than you could on your own. Particularly, NEVER just print a constant or use Python to load a file that is already part of your context.',
       \     'input_schema': {
       \       'type': 'object',
       \       'properties': {
       \         'code': {
       \           'type': 'string',
-      \           'description': 'The Python one-liner code to execute. Wrap the final expression in `print` to receive its result.'
+      \           'description': 'The Python one-liner code to execute. Wrap the final expression in `print` to see its result - otherwise, output will be empty.'
       \         }
       \       },
       \       'required': ['code']
