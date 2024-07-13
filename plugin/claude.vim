@@ -30,17 +30,21 @@ if !exists('g:claude_aws_profile')
   let g:claude_aws_profile = ''
 endif
 
+"""""""""""""""""""""""""""""""""""""
+
+function! s:ClaudeLoadPrompt(prompt_type)
+  let l:plugin_dir = expand('<sfile>:p:h')
+  let l:prompts_file = l:plugin_dir . '/claude_' . a:prompt_type . '_prompt.md'
+  return readfile(l:prompts_file)
+endfunction
+
 if !exists('g:claude_default_system_prompt')
-  let s:plugin_dir = expand('<sfile>:p:h')
-  let s:prompts_file = s:plugin_dir . '/claude_system_prompt.md'
-  let g:claude_default_system_prompt = readfile(s:prompts_file)
+  let g:claude_default_system_prompt = s:ClaudeLoadPrompt('system')
 endif
 
 " Add this near the top of the file, after other configuration variables
 if !exists('g:claude_implement_prompt')
-  let s:plugin_dir = expand('<sfile>:p:h')
-  let s:implement_prompts_file = s:plugin_dir . '/claude_implement_prompt.md'
-  let g:claude_implement_prompt = readfile(s:implement_prompts_file)
+  let g:claude_implement_prompt = s:ClaudeLoadPrompt('implement')
 endif
 
 """""""""""""""""""""""""""""""""""""
