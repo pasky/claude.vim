@@ -636,10 +636,11 @@ function! s:GetFunctionRange(bufnr, function_line)
   let l:found_line = search('^\s*\V' . escape(a:function_line, '\'), 'cW')
 
   if l:found_line == 0
-    " Function not found
+    " Function not found, return special value to indicate appending
+    let l:last_line = line('$')
     call winrestview(l:win_view)
     execute 'buffer' l:current_bufnr
-    return []
+    return [l:last_line + 1, l:last_line + 1]
   endif
 
   let l:start_line = l:found_line
