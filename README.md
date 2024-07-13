@@ -74,6 +74,8 @@ Set your Claude API key in your .vimrc:
 let g:claude_api_key = 'your_api_key_here'
 ```
 
+(You can also use AWS Bedrock as your Claude provider instead - in that case, set `let g:claude_use_bedrock = 1` instead.)
+
 ## Usage
 
 First, a couple of vim concepts you should be roughly familiar with:

@@ -14,6 +14,22 @@ if !exists('g:claude_model')
   let g:claude_model = 'claude-3-5-sonnet-20240620'
 endif
 
+if !exists('g:claude_use_bedrock')
+  let g:claude_use_bedrock = 0
+endif
+
+if !exists('g:claude_bedrock_region')
+  let g:claude_bedrock_region = 'us-east-1'
+endif
+
+if !exists('g:claude_bedrock_model_id')
+  let g:claude_bedrock_model_id = 'anthropic.claude-3-5-sonnet-20240620-v1:0'
+endif
+	
+if !exists('g:claude_aws_profile')
+  let g:claude_aws_profile = ''
+endif
+
 if !exists('g:claude_default_system_prompt')
   let g:claude_default_system_prompt = [
         \ 'You are a pair programmer focused on concise, content-centric interactions.',
@@ -37,44 +53,60 @@ endif
 
 function! s:ClaudeQueryInternal(messages, system_prompt, callback)
   " Prepare the API request
-  let l:data = {
-    \ 'model': g:claude_model,
-    \ 'max_tokens': 2048,
-    \ 'messages': a:messages,
-    \ 'stream': v:true,
-    \ 'tools': [
-    \   {
-    \     'name': 'python',
-    \     'description': 'Execute a Python one-liner code snippet and return the standard output.',
-    \     'input_schema': {
-    \       'type': 'object',
-    \       'properties': {
-    \         'code': {
-    \           'type': 'string',
-    \           'description': 'The Python one-liner code to execute. Wrap the final expression in `print` to receive its result.'
-    \         }
-    \       },
-    \       'required': ['code']
-    \     }
-    \   }
-    \ ]
-    \ }
+  let l:data = {}
+  let l:headers = []
+  let l:url = ''
 
-  if !empty(a:system_prompt)
-    let l:data['system'] = a:system_prompt
+  if g:claude_use_bedrock
+    let l:plugin_dir = expand('<sfile>:p:h')
+    let l:python_script = l:plugin_dir . '/plugin/claude_bedrock_helper.py'
+    " TODO tools support
+    let l:cmd = ['python3', l:python_script,
+          \ '--region', g:claude_bedrock_region,
+          \ '--model-id', g:claude_bedrock_model_id,
+          \ '--messages', json_encode(a:messages),
+          \ '--system-prompt', a:system_prompt]
+
+    if !empty(g:claude_aws_profile)
+      call extend(l:cmd, ['--profile', g:claude_aws_profile])
+    endif
+  else
+    let l:url = g:claude_api_url
+    let l:data = {
+      \ 'model': g:claude_model,
+      \ 'max_tokens': 2048,
+      \ 'messages': a:messages,
+      \ 'tools': [
+      \   {
+      \     'name': 'python',
+      \     'description': 'Execute a Python one-liner code snippet and return the standard output.',
+      \     'input_schema': {
+      \       'type': 'object',
+      \       'properties': {
+      \         'code': {
+      \           'type': 'string',
+      \           'description': 'The Python one-liner code to execute. Wrap the final expression in `print` to receive its result.'
+      \         }
+      \       },
+      \       'required': ['code']
+      \     }
+      \   }
+      \ ],
+      \ 'stream': v:true
+      \ }
+    if !empty(a:system_prompt)
+      let l:data['system'] = a:system_prompt
+    endif
+    call extend(l:headers, ['-H', 'Content-Type: application/json'])
+    call extend(l:headers, ['-H', 'x-api-key: ' . g:claude_api_key])
+    call extend(l:headers, ['-H', 'anthropic-version: 2023-06-01'])
+
+    " Convert data to JSON
+    let l:json_data = json_encode(l:data)
+    let l:cmd = ['curl', '-s', '-N', '-X', 'POST']
+    call extend(l:cmd, l:headers)
+    call extend(l:cmd, ['-d', l:json_data, l:url])
   endif
-
-  " Convert data to JSON
-  let l:json_data = json_encode(l:data)
-
-  " Prepare the curl command
-  let l:cmd = ['curl', '-s', '-N', '-X', 'POST',
-    \ '-H', 'Content-Type: application/json',
-    \ '-H', 'x-api-key: ' . g:claude_api_key,
-    \ '-H', 'anthropic-version: 2023-06-01',
-    \ '-d', l:json_data,
-    \ g:claude_api_url]
-  " echo l:cmd
 
   " Start the job
   if has('nvim')
@@ -137,8 +169,8 @@ function! s:HandleStreamOutput(callback, channel, msg)
   endfor
 endfunction
 
-function! s:HandleJobError(callback, channel, msg, is_final)
-  call a:callback('Error: ' . a:msg, a:is_final)
+function! s:HandleJobError(callback, channel, msg)
+  call a:callback('Error: ' . a:msg, v:true)
 endfunction
 
 function! s:HandleJobExit(callback, job, status)
