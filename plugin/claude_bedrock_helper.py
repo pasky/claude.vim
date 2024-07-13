@@ -49,19 +49,27 @@ def invoke_bedrock_model(client, model_id, messages, system_prompt):
 def stream_response(stream):
     for event in stream:
         if 'contentBlockDelta' in event:
-            print(f"data: {json.dumps(event['contentBlockDelta'])}")
+            in_data = event['contentBlockDelta']
+            content_delta_data = {"type": "content_block_delta", "index": in_data['contentBlockIndex'], "delta": {"type": "text_delta", "text": in_data['delta']['text']}}
+            print(f"event: content_block_delta")
+            print(f"data: {json.dumps(content_delta_data)}")
+
         elif 'messageStop' in event:
             print("event: message_stop")
+            print('data: {"type": "message_stop"}')
+
         elif 'metadata' in event:
             usage = event['metadata'].get('usage', {})
-            usage_data = {
+            message_delta_data = {
+                "type": "message_delta",
                 "usage": {
                     "input_tokens": usage.get('inputTokens', 0),
                     "output_tokens": usage.get('outputTokens', 0),
                     "total_tokens": usage.get('totalTokens', 0)
                 }
             }
-            print(f"data: {json.dumps(usage_data)}")
+            print(f"event: message_delta")
+            print(f"data: {json.dumps(message_delta_data)}")
         sys.stdout.flush()
 
 def main():
