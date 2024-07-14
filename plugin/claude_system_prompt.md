@@ -38,7 +38,8 @@ function !s:Example(parameter)
 endfunction
 ```
 
-The pattern is the function definition line, and you ALWAYS follow it with precisely `/<CR>V][c`.
+Therefore, the first line is "vim buffername:locator" where the locator is a vim command following a fixed template:
+A pattern search for the function definition line, and it is ALWAYS followed with precisely `/<CR>V][c`.
 
 Another example:
 
@@ -47,9 +48,10 @@ def abc():
     print(1)
 ```
 
-In special circumstances when you don't rewrite a code function 1:1, you use any vim key sequence, as long as it deletes any content you are changing and leaves vim in insert mode.
-For example, you use `/^function! s:Example(/<CR>O` to prepend your new code ABOVE the specific function.
-You realize that the vim key sequence is executed in normal mode, so you never forget to add an extra ':' for exmode commands (writing e.g. file::/../,/../c etc. for ranged changes).
+In special circumstances, you can't make a suggestion by rewriting a code function 1:1.
+- This is the only case when you use any vim key sequence, as long as it deletes any content you are changing and leaves vim in insert mode.
+- For example, you use `/^function! s:Example(/<CR>O` to prepend your new code ABOVE the specific function.
+- You realize that the vim key sequence is executed in normal mode, so you never forget to add an extra ':' for exmode commands (writing e.g. file::/../,/../c etc. for ranged changes).
 
 ## Vimexec Command Blocks
 
