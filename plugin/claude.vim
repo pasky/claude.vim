@@ -47,7 +47,11 @@ if !exists('g:claude_implement_prompt')
   let g:claude_implement_prompt = s:ClaudeLoadPrompt('implement')
 endif
 
-"""""""""""""""""""""""""""""""""""""
+
+
+" ============================================================================
+" Claude API
+" ============================================================================
 
 function! s:ClaudeQueryInternal(messages, system_prompt, callback)
   " Prepare the API request
@@ -200,18 +204,11 @@ function! s:HandleJobExitNvim(callback, job_id, exit_code, event) dict
   call s:HandleJobExit(a:callback, 0, a:exit_code)
 endfunction
 
-function! s:GetOrCreateChatWindow()
-  let l:chat_bufnr = bufnr('Claude Chat')
-  if l:chat_bufnr == -1 || !bufloaded(l:chat_bufnr)
-    call s:OpenClaudeChat()
-    let l:chat_bufnr = bufnr('Claude Chat')
-  endif
 
-  let l:chat_winid = bufwinid(l:chat_bufnr)
-  let l:current_winid = win_getid()
 
-  return [l:chat_bufnr, l:chat_winid, l:current_winid]
-endfunction
+" ============================================================================
+" Diff View
+" ============================================================================
 
 function! s:ApplyChange(normal_command, content)
   let l:view = winsaveview()
@@ -270,6 +267,12 @@ function! s:ApplyCodeChangesDiff(bufnr, changes)
   call win_gotoid(l:original_winid)
 endfunction
 
+
+
+" ============================================================================
+" Tool Integration
+" ============================================================================
+
 if !exists('g:claude_tools')
   let g:claude_tools = [
     \ {
@@ -308,7 +311,11 @@ function! s:ExecutePythonCode(code)
   endif
 endfunction
 
-"""""""""""""""""""""""""""""""""""""
+
+
+" ============================================================================
+" ClaudeImplement
+" ============================================================================
 
 function! s:LogImplementInChat(instruction, implement_response, bufname, start_line, end_line)
   let [l:chat_bufnr, l:chat_winid, l:current_winid] = s:GetOrCreateChatWindow()
@@ -405,7 +412,27 @@ endfunction
 command! -range -nargs=1 ClaudeImplement <line1>,<line2>call s:ClaudeImplement(<line1>, <line2>, <q-args>)
 vnoremap <Leader>ci :ClaudeImplement<Space>
 
-"""""""""""""""""""""""""""""""""""""
+
+
+" ============================================================================
+" ClaudeChat
+" ============================================================================
+
+
+" ----- Chat service functions
+
+function! s:GetOrCreateChatWindow()
+  let l:chat_bufnr = bufnr('Claude Chat')
+  if l:chat_bufnr == -1 || !bufloaded(l:chat_bufnr)
+    call s:OpenClaudeChat()
+    let l:chat_bufnr = bufnr('Claude Chat')
+  endif
+
+  let l:chat_winid = bufwinid(l:chat_bufnr)
+  let l:current_winid = win_getid()
+
+  return [l:chat_bufnr, l:chat_winid, l:current_winid]
+endfunction
 
 function! s:GetClaudeIndent()
   if &expandtab
@@ -414,6 +441,20 @@ function! s:GetClaudeIndent()
     return repeat("\t", (&shiftwidth + &tabstop - 1) / &tabstop)
   endif
 endfunction
+
+function! s:AppendResponse(response)
+  let l:response_lines = split(a:response, "\n")
+  if len(l:response_lines) == 1
+    call append('$', 'Claude: ' . l:response_lines[0])
+  else
+    call append('$', 'Claude:')
+    let l:indent = s:GetClaudeIndent()
+    call append('$', map(l:response_lines, {_, v -> v =~ '^\s*$' ? '' : l:indent . v}))
+  endif
+endfunction
+
+
+" ----- Chat window UX
 
 function! GetChatFold(lnum)
   let l:line = getline(a:lnum)
@@ -469,6 +510,10 @@ function! s:SetupClaudeChatSyntax()
   let b:current_syntax = "claudechat"
 endfunction
 
+function! s:GoToLastYouLine()
+  normal! G$
+endfunction
+
 function! s:OpenClaudeChat()
   let l:claude_bufnr = bufnr('Claude Chat')
 
@@ -512,9 +557,12 @@ function! s:OpenClaudeChat()
   call s:GoToLastYouLine()
 endfunction
 
-function! s:GoToLastYouLine()
-  normal! G$
-endfunction
+" Command to open Claude chat
+command! ClaudeChat call s:OpenClaudeChat()
+nnoremap <Leader>cc :ClaudeChat<CR>
+
+
+" ----- Chat parser (to messages list)
 
 function! s:AddMessageToList(messages, message)
   " FIXME: Handle multiple tool_use, tool_result blocks at once
@@ -528,53 +576,6 @@ function! s:AddMessageToList(messages, message)
     endif
     call add(a:messages, l:message)
   endif
-endfunction
-
-function! s:ParseChatBuffer()
-  let l:buffer_content = getline(1, '$')
-  let l:messages = []
-  let l:current_message = {'role': '', 'content': [], 'tool_use': {}, 'tool_result': {}}
-  let l:system_prompt = []
-  let l:in_system_prompt = 0
-
-  for line in l:buffer_content
-    if line =~ '^System prompt:'
-      let l:in_system_prompt = 1
-      let l:system_prompt = [substitute(line, '^System prompt:\s*', '', '')]
-    elseif l:in_system_prompt && line =~ '^\s'
-      call add(l:system_prompt, substitute(line, '^\s*', '', ''))
-    else
-      let l:in_system_prompt = 0
-      let l:current_message = s:ProcessLine(line, l:messages, l:current_message)
-    endif
-  endfor
-
-  if !empty(l:current_message.role)
-    call s:AddMessageToList(l:messages, l:current_message)
-  endif
-
-  return [filter(l:messages, {_, v -> !empty(v.content)}), join(l:system_prompt, "\n")]
-endfunction
-
-function! s:ProcessLine(line, messages, current_message)
-  let l:new_message = copy(a:current_message)
-
-  if a:line =~ '^You:'
-    call s:AddMessageToList(a:messages, l:new_message)
-    let l:new_message = s:InitMessage('user', a:line)
-  elseif a:line =~ '^Claude'  " both Claude: and Claude...:
-    call s:AddMessageToList(a:messages, l:new_message)
-    let l:new_message = s:InitMessage('assistant', a:line)
-  elseif a:line =~ '^Tool use ('
-    let l:new_message.tool_use = s:ParseToolUse(a:line)
-  elseif a:line =~ '^Tool result ('
-    call s:AddMessageToList(a:messages, l:new_message)
-    let l:new_message = s:InitToolResult(a:line)
-  elseif !empty(l:new_message.role)
-    call s:AppendContent(l:new_message, a:line)
-  endif
-
-  return l:new_message
 endfunction
 
 function! s:InitMessage(role, line)
@@ -625,6 +626,56 @@ function! s:AppendContent(message, line)
   endif
 endfunction
 
+function! s:ProcessLine(line, messages, current_message)
+  let l:new_message = copy(a:current_message)
+
+  if a:line =~ '^You:'
+    call s:AddMessageToList(a:messages, l:new_message)
+    let l:new_message = s:InitMessage('user', a:line)
+  elseif a:line =~ '^Claude'  " both Claude: and Claude...:
+    call s:AddMessageToList(a:messages, l:new_message)
+    let l:new_message = s:InitMessage('assistant', a:line)
+  elseif a:line =~ '^Tool use ('
+    let l:new_message.tool_use = s:ParseToolUse(a:line)
+  elseif a:line =~ '^Tool result ('
+    call s:AddMessageToList(a:messages, l:new_message)
+    let l:new_message = s:InitToolResult(a:line)
+  elseif !empty(l:new_message.role)
+    call s:AppendContent(l:new_message, a:line)
+  endif
+
+  return l:new_message
+endfunction
+
+function! s:ParseChatBuffer()
+  let l:buffer_content = getline(1, '$')
+  let l:messages = []
+  let l:current_message = {'role': '', 'content': [], 'tool_use': {}, 'tool_result': {}}
+  let l:system_prompt = []
+  let l:in_system_prompt = 0
+
+  for line in l:buffer_content
+    if line =~ '^System prompt:'
+      let l:in_system_prompt = 1
+      let l:system_prompt = [substitute(line, '^System prompt:\s*', '', '')]
+    elseif l:in_system_prompt && line =~ '^\s'
+      call add(l:system_prompt, substitute(line, '^\s*', '', ''))
+    else
+      let l:in_system_prompt = 0
+      let l:current_message = s:ProcessLine(line, l:messages, l:current_message)
+    endif
+  endfor
+
+  if !empty(l:current_message.role)
+    call s:AddMessageToList(l:messages, l:current_message)
+  endif
+
+  return [filter(l:messages, {_, v -> !empty(v.content)}), join(l:system_prompt, "\n")]
+endfunction
+
+
+" ----- Sending messages
+
 function! s:GetBuffersContent()
   let l:buffers = []
   for bufnr in range(1, bufnr('$'))
@@ -637,56 +688,80 @@ function! s:GetBuffersContent()
   return l:buffers
 endfunction
 
-function! s:AppendResponse(response)
-  let l:response_lines = split(a:response, "\n")
-  if len(l:response_lines) == 1
-    call append('$', 'Claude: ' . l:response_lines[0])
+function! s:SendChatMessage(prefix)
+  let [l:messages, l:system_prompt] = s:ParseChatBuffer()
+
+  let l:buffer_contents = s:GetBuffersContent()
+  let l:content_prompt = "# Contents of open buffers\n\n"
+  for buffer in l:buffer_contents
+    let l:content_prompt .= "Buffer: " . buffer.name . "\n"
+    let l:content_prompt .= "<content>\n" . buffer.contents . "</content>\n\n"
+    let l:content_prompt .= "============================\n\n"
+  endfor
+
+  call append('$', a:prefix . " ")
+
+  let l:job = s:ClaudeQueryInternal(l:messages, l:content_prompt . l:system_prompt, function('s:HandleChatResponse'))
+
+  " Store the job ID or channel for potential cancellation
+  if has('nvim')
+    let s:current_chat_job = l:job
   else
-    call append('$', 'Claude:')
-    let l:indent = s:GetClaudeIndent()
-    call append('$', map(l:response_lines, {_, v -> v =~ '^\s*$' ? '' : l:indent . v}))
+    let s:current_chat_job = job_getchannel(l:job)
   endif
 endfunction
 
-function! s:ResponseExtractChanges()
-  let l:all_changes = {}
+" Command to send message in normal mode
+command! ClaudeSend call <SID>SendChatMessage('Claude:')
+
+
+" ----- Handling responses: Tool use
+
+function! s:ResponseExtractToolUses()
+  let l:tool_uses = []
+  let l:in_tool_use = 0
+  let l:current_tool_use = {}
 
   " Find the start of the last Claude block
   normal! G
-  let l:start_line = search('^Claude:', 'b')  " Skip over Claude...:
-  let l:end_line = line('$')
-  let l:markdown_delim = '^' . s:GetClaudeIndent() . '```'
+  let l:start_line = search('^Claude', 'b')  " Either Claude: or Claude...:
 
-  let l:in_code_block = 0
-  let l:current_block = {'header': '', 'code': [], 'start_line': 0}
-
-  for l:line_num in range(l:start_line, l:end_line)
+  " Parse from the start line to the end of the buffer
+  for l:line_num in range(l:start_line, line('$'))
     let l:line = getline(l:line_num)
 
-    if l:line =~ l:markdown_delim
-      if ! l:in_code_block
-        " Start of code block
-        let l:current_block = {'header': substitute(l:line, l:markdown_delim, '', ''), 'code': [], 'start_line': l:line_num + 1}
-        let l:in_code_block = 1
-      else
-        " End of code block
-        let l:current_block.end_line = l:line_num
-        call s:ProcessCodeBlock(l:current_block, l:all_changes)
-        let l:in_code_block = 0
+    if l:line =~ '^Tool use ('
+      let l:in_tool_use = 1
+      let l:current_tool_use = {'id': substitute(l:line, '^Tool use (\(.*\)):$', '\1', '')}
+    elseif l:in_tool_use
+      if l:line =~ '^\s*Name:'
+        let l:current_tool_use.name = substitute(l:line, '^\s*Name:\s*', '', '')
+      elseif l:line =~ '^\s*Input:'
+        let l:current_tool_use.input = json_decode(substitute(l:line, '^\s*Input:\s*', '', ''))
+        call add(l:tool_uses, l:current_tool_use)
+        let l:in_tool_use = 0
       endif
-    elseif l:in_code_block
-      call add(l:current_block.code, substitute(l:line, '^' . s:GetClaudeIndent(), '', ''))
     endif
   endfor
 
-  " Process any remaining open code block
-  if l:in_code_block
-    let l:current_block.end_line = l:end_line
-    call s:ProcessCodeBlock(l:current_block, l:all_changes)
-  endif
-
-  return l:all_changes
+  return l:tool_uses
 endfunction
+
+function! s:AppendToolUse(tool_call_id, tool_name, tool_input)
+  let l:indent = s:GetClaudeIndent()
+  call append('$', 'Tool use (' . a:tool_call_id . '):')
+  call append('$', l:indent . 'Name: ' . a:tool_name)
+  call append('$', l:indent . 'Input: ' . json_encode(a:tool_input))
+endfunction
+
+function! s:AppendToolResult(tool_call_id, result)
+  let l:indent = s:GetClaudeIndent()
+  call append('$', 'Tool result (' . a:tool_call_id . '):')
+  call append('$', map(split(a:result, "\n"), {_, v -> l:indent . v}))
+endfunction
+
+
+" ----- Handling responses: Code changes
 
 function! s:ProcessCodeBlock(block, all_changes)
   let l:matches = matchlist(a:block.header, '^\(\S\+\)\%(\s\+\(\S\+\)\%(:\(.*\)\)\?\)\?$')
@@ -733,6 +808,49 @@ function! s:ProcessCodeBlock(block, all_changes)
   call setline(a:block.start_line - 1, l:indent . '```' . a:block.header . ' [APPLIED]')
 endfunction
 
+function! s:ResponseExtractChanges()
+  let l:all_changes = {}
+
+  " Find the start of the last Claude block
+  normal! G
+  let l:start_line = search('^Claude:', 'b')  " Skip over Claude...:
+  let l:end_line = line('$')
+  let l:markdown_delim = '^' . s:GetClaudeIndent() . '```'
+
+  let l:in_code_block = 0
+  let l:current_block = {'header': '', 'code': [], 'start_line': 0}
+
+  for l:line_num in range(l:start_line, l:end_line)
+    let l:line = getline(l:line_num)
+
+    if l:line =~ l:markdown_delim
+      if ! l:in_code_block
+        " Start of code block
+        let l:current_block = {'header': substitute(l:line, l:markdown_delim, '', ''), 'code': [], 'start_line': l:line_num + 1}
+        let l:in_code_block = 1
+      else
+        " End of code block
+        let l:current_block.end_line = l:line_num
+        call s:ProcessCodeBlock(l:current_block, l:all_changes)
+        let l:in_code_block = 0
+      endif
+    elseif l:in_code_block
+      call add(l:current_block.code, substitute(l:line, '^' . s:GetClaudeIndent(), '', ''))
+    endif
+  endfor
+
+  " Process any remaining open code block
+  if l:in_code_block
+    let l:current_block.end_line = l:end_line
+    call s:ProcessCodeBlock(l:current_block, l:all_changes)
+  endif
+
+  return l:all_changes
+endfunction
+
+
+" ----- Handling responses
+
 function! s:ClosePreviousFold()
   let l:save_cursor = getpos(".")
 
@@ -747,7 +865,7 @@ endfunction
 
 function! s:CloseCurrentInteractionCodeBlocks()
   let l:save_cursor = getpos(".")
-  
+
   " Move to the start of the current interaction
   normal! [z
 
@@ -756,7 +874,7 @@ function! s:CloseCurrentInteractionCodeBlocks()
     if foldlevel('.') == 2
       normal! zc
     endif
-    
+
     let current_line = line('.')
     normal! j
     if line('.') == current_line || foldlevel('.') < 1 || line('.') == line('$')
@@ -771,59 +889,6 @@ function! s:PrepareNextInput()
   call append('$', '')
   call append('$', 'You: ')
   normal! G$
-endfunction
-
-function! s:SendChatMessage(prefix)
-  let [l:messages, l:system_prompt] = s:ParseChatBuffer()
-
-  let l:buffer_contents = s:GetBuffersContent()
-  let l:content_prompt = "# Contents of open buffers\n\n"
-  for buffer in l:buffer_contents
-    let l:content_prompt .= "Buffer: " . buffer.name . "\n"
-    let l:content_prompt .= "<content>\n" . buffer.contents . "</content>\n\n"
-    let l:content_prompt .= "============================\n\n"
-  endfor
-
-  call append('$', a:prefix . " ")
-
-  let l:job = s:ClaudeQueryInternal(l:messages, l:content_prompt . l:system_prompt, function('s:HandleChatResponse'))
-
-  " Store the job ID or channel for potential cancellation
-  if has('nvim')
-    let s:current_chat_job = l:job
-  else
-    let s:current_chat_job = job_getchannel(l:job)
-  endif
-endfunction
-
-function! s:ResponseExtractToolUses()
-  let l:tool_uses = []
-  let l:in_tool_use = 0
-  let l:current_tool_use = {}
-  
-  " Find the start of the last Claude block
-  normal! G
-  let l:start_line = search('^Claude', 'b')  " Either Claude: or Claude...:
-  
-  " Parse from the start line to the end of the buffer
-  for l:line_num in range(l:start_line, line('$'))
-    let l:line = getline(l:line_num)
-    
-    if l:line =~ '^Tool use ('
-      let l:in_tool_use = 1
-      let l:current_tool_use = {'id': substitute(l:line, '^Tool use (\(.*\)):$', '\1', '')}
-    elseif l:in_tool_use
-      if l:line =~ '^\s*Name:'
-        let l:current_tool_use.name = substitute(l:line, '^\s*Name:\s*', '', '')
-      elseif l:line =~ '^\s*Input:'
-        let l:current_tool_use.input = json_decode(substitute(l:line, '^\s*Input:\s*', '', ''))
-        call add(l:tool_uses, l:current_tool_use)
-        let l:in_tool_use = 0
-      endif
-    endif
-  endfor
-  
-  return l:tool_uses
 endfunction
 
 function! s:HandleChatResponse(delta, is_final)
@@ -890,27 +955,5 @@ function! s:CancelClaudeResponse()
   endif
 endfunction
 
-function! s:AppendToolUse(tool_call_id, tool_name, tool_input)
-  let l:indent = s:GetClaudeIndent()
-  call append('$', 'Tool use (' . a:tool_call_id . '):')
-  call append('$', l:indent . 'Name: ' . a:tool_name)
-  call append('$', l:indent . 'Input: ' . json_encode(a:tool_input))
-endfunction
-
-function! s:AppendToolResult(tool_call_id, result)
-  let l:indent = s:GetClaudeIndent()
-  call append('$', 'Tool result (' . a:tool_call_id . '):')
-  call append('$', map(split(a:result, "\n"), {_, v -> l:indent . v}))
-endfunction
-
 command! ClaudeCancel call s:CancelClaudeResponse()
-
-" Command to open Claude chat
-command! ClaudeChat call s:OpenClaudeChat()
-
-" Command to send message in normal mode
-command! ClaudeSend call <SID>SendChatMessage('Claude:')
-
-" Optional: Key mapping
-nnoremap <Leader>cc :ClaudeChat<CR>
 nnoremap <Leader>cx :ClaudeCancel<CR>
