@@ -777,16 +777,16 @@ function! s:SendChatMessage(prefix)
   let [l:messages, l:system_prompt] = s:ParseChatBuffer()
 
   let l:buffer_contents = s:GetBuffersContent()
-  let l:system_prompt .= "\n\n# Contents of open buffers\n\n"
+  let l:content_prompt = "# Contents of open buffers\n\n"
   for buffer in l:buffer_contents
-    let l:system_prompt .= "Buffer: " . buffer.name . "\n"
-    let l:system_prompt .= "Contents:\n" . buffer.contents . "\n\n"
-    let l:system_prompt .= "============================\n\n"
+    let l:content_prompt .= "Buffer: " . buffer.name . "\n"
+    let l:content_prompt .= "<content>\n" . buffer.contents . "</content>\n\n"
+    let l:content_prompt .= "============================\n\n"
   endfor
 
   call append('$', a:prefix . " ")
 
-  let l:job = s:ClaudeQueryInternal(l:messages, l:system_prompt, function('s:HandleChatResponse'))
+  let l:job = s:ClaudeQueryInternal(l:messages, l:content_prompt . l:system_prompt, function('s:HandleChatResponse'))
 
   " Store the job ID or channel for potential cancellation
   if has('nvim')
