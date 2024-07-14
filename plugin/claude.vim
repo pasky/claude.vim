@@ -788,6 +788,7 @@ function! s:SendChatMessage(prefix)
   endfor
 
   call append('$', a:prefix . " ")
+  normal! G
 
   let l:job = s:ClaudeQueryInternal(l:messages, l:content_prompt . l:system_prompt, g:claude_tools, function('s:StreamingChatResponse'), function('s:FinalChatResponse'))
 
@@ -840,12 +841,14 @@ function! s:AppendToolUse(tool_call_id, tool_name, tool_input)
   call append('$', 'Tool use (' . a:tool_call_id . '):')
   call append('$', l:indent . 'Name: ' . a:tool_name)
   call append('$', l:indent . 'Input: ' . json_encode(a:tool_input))
+  normal! G
 endfunction
 
 function! s:AppendToolResult(tool_call_id, result)
   let l:indent = s:GetClaudeIndent()
   call append('$', 'Tool result (' . a:tool_call_id . '):')
   call append('$', map(split(a:result, "\n"), {_, v -> l:indent . v}))
+  normal! G
 endfunction
 
 
