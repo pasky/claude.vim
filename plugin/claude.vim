@@ -767,7 +767,7 @@ endfunction
 function! s:GetBuffersContent()
   let l:buffers = []
   for bufnr in range(1, bufnr('$'))
-    if buflisted(bufnr) && bufname(bufnr) != 'Claude Chat'
+    if buflisted(bufnr) && bufname(bufnr) != 'Claude Chat' && !empty(win_findbuf(bufnr))
       let l:bufname = bufname(bufnr)
       let l:contents = join(getbufline(bufnr, 1, '$'), "\n")
       call add(l:buffers, {'name': l:bufname, 'contents': l:contents})
