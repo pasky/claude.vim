@@ -296,6 +296,20 @@ if !exists('g:claude_tools')
     \     },
     \     'required': ['code']
     \   }
+    \ },
+    \ {
+    \   "name": "new",
+    \   "description": "Open a new buffer (file, directory or netrw URL) so that you get access to its content. Open ONLY files you do not have available yet. Returns the buffer name, or 'ERROR' for non-existent paths.",
+    \   "input_schema": {
+    \     "type": "object",
+    \     "properties": {
+    \       "path": {
+    \         "type": "string",
+    \         "description": "The path to open, passed as an argument to the vim :new command"
+    \       }
+    \     },
+    \     "required": ["buffername"]
+    \   }
     \ }
   \ ]
 endif
@@ -303,6 +317,8 @@ endif
 function! s:ExecuteTool(tool_name, arguments)
   if a:tool_name == 'python'
     return s:ExecutePythonCode(a:arguments.code)
+  elseif a:tool_name == 'new'
+    return s:ExecuteNewTool(a:arguments.path)
   else
     return 'Error: Unknown tool ' . a:tool_name
   endif
@@ -319,6 +335,29 @@ function! s:ExecutePythonCode(code)
   endif
 endfunction
 
+function! s:ExecuteNewTool(path)
+  let l:current_winid = win_getid()
+
+  topleft 1new
+
+  try
+    execute 'edit ' . fnameescape(a:path)
+    let l:bufname = bufname('%')
+
+    if line('$') == 1 && getline(1) == ''
+      close
+      call win_gotoid(l:current_winid)
+      return 'ERROR: The opened buffer was empty (non-existent?)'
+    else
+      call win_gotoid(l:current_winid)
+      return l:bufname
+    endif
+  catch
+    close
+    call win_gotoid(l:current_winid)
+    return 'ERROR: ' . v:exception
+  endtry
+endfunction
 
 
 " ============================================================================
