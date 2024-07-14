@@ -53,7 +53,7 @@ endif
 " Claude API
 " ============================================================================
 
-function! s:ClaudeQueryInternal(messages, system_prompt, callback)
+function! s:ClaudeQueryInternal(messages, system_prompt, stream_callback, final_callback)
   " Prepare the API request
   let l:data = {}
   let l:headers = []
@@ -98,15 +98,15 @@ function! s:ClaudeQueryInternal(messages, system_prompt, callback)
   " Start the job
   if has('nvim')
     let l:job = jobstart(l:cmd, {
-      \ 'on_stdout': function('s:HandleStreamOutputNvim', [a:callback]),
-      \ 'on_stderr': function('s:HandleJobErrorNvim', [a:callback]),
-      \ 'on_exit': function('s:HandleJobExitNvim', [a:callback])
+      \ 'on_stdout': function('s:HandleStreamOutputNvim', [a:stream_callback, a:final_callback]),
+      \ 'on_stderr': function('s:HandleJobErrorNvim', [a:stream_callback, a:final_callback]),
+      \ 'on_exit': function('s:HandleJobExitNvim', [a:stream_callback, a:final_callback])
       \ })
   else
     let l:job = job_start(l:cmd, {
-      \ 'out_cb': function('s:HandleStreamOutput', [a:callback]),
-      \ 'err_cb': function('s:HandleJobError', [a:callback]),
-      \ 'exit_cb': function('s:HandleJobExit', [a:callback])
+      \ 'out_cb': function('s:HandleStreamOutput', [a:stream_callback, a:final_callback]),
+      \ 'err_cb': function('s:HandleJobError', [a:stream_callback, a:final_callback]),
+      \ 'exit_cb': function('s:HandleJobExit', [a:stream_callback, a:final_callback])
       \ })
   endif
 
@@ -129,7 +129,7 @@ function! s:DisplayTokenUsageAndCost(json_data)
   endif
 endfunction
 
-function! s:HandleStreamOutput(callback, channel, msg)
+function! s:HandleStreamOutput(stream_callback, final_callback, channel, msg)
   " Split the message into lines
   let l:lines = split(a:msg, "\n")
   for l:line in l:lines
@@ -158,50 +158,53 @@ function! s:HandleStreamOutput(callback, channel, msg)
         endif
       elseif has_key(l:response, 'delta') && has_key(l:response.delta, 'text')
         let l:delta = l:response.delta.text
-        call a:callback(l:delta, v:false)
+        call a:stream_callback(l:delta)
       elseif l:response.type == 'message_delta' && has_key(l:response, 'usage')
         call s:DisplayTokenUsageAndCost(l:json_str)
       elseif l:response.type != 'message_stop'
-        call a:callback('Unknown Claude protocol output: "' . l:line . "\"\n", v:false)
+        call a:stream_callback('Unknown Claude protocol output: "' . l:line . "\"\n")
       endif
     elseif l:line ==# 'event: ping'
       " Ignore ping events
     elseif l:line ==# 'event: error'
-      call a:callback('Error: Server sent an error event', v:true)
+      call a:stream_callback('Error: Server sent an error event')
+      call a:final_callback()
     elseif l:line ==# 'event: message_stop'
-      call a:callback('', v:true)
+      call a:final_callback()
     elseif l:line !=# 'event: message_start' && l:line !=# 'event: message_delta' && l:line !=# 'event: content_block_start' && l:line !=# 'event: content_block_delta' && l:line !=# 'event: content_block_stop'
-      call a:callback('Unknown Claude protocol output: "' . l:line . "\"\n", v:false)
+      call a:stream_callback('Unknown Claude protocol output: "' . l:line . "\"\n")
     endif
   endfor
 endfunction
 
-function! s:HandleJobError(callback, channel, msg)
-  call a:callback('Error: ' . a:msg, v:true)
+function! s:HandleJobError(stream_callback, final_callback, channel, msg)
+  call a:stream_callback('Error: ' . a:msg)
+  call a:final_callback()
 endfunction
 
-function! s:HandleJobExit(callback, job, status)
+function! s:HandleJobExit(stream_callback, final_callback, job, status)
   if a:status != 0
-    call a:callback('Error: Job exited with status ' . a:status, v:true)
+    call a:stream_callback('Error: Job exited with status ' . a:status)
+    call a:final_callback()
   endif
 endfunction
 
-function! s:HandleStreamOutputNvim(callback, job_id, data, event) dict
+function! s:HandleStreamOutputNvim(stream_callback, final_callback, job_id, data, event) dict
   for l:msg in a:data
-    call s:HandleStreamOutput(a:callback, 0, l:msg)
+    call s:HandleStreamOutput(a:stream_callback, a:final_callback, 0, l:msg)
   endfor
 endfunction
 
-function! s:HandleJobErrorNvim(callback, job_id, data, event) dict
+function! s:HandleJobErrorNvim(stream_callback, final_callback, job_id, data, event) dict
   for l:msg in a:data
     if l:msg != ''
-      call s:HandleJobError(a:callback, 0, l:msg, v:true)
+      call s:HandleJobError(a:stream_callback, a:final_callback, 0, l:msg, v:true)
     endif
   endfor
 endfunction
 
-function! s:HandleJobExitNvim(callback, job_id, exit_code, event) dict
-  call s:HandleJobExit(a:callback, 0, a:exit_code)
+function! s:HandleJobExitNvim(stream_callback, final_callback, job_id, exit_code, event) dict
+  call s:HandleJobExit(a:stream_callback, a:final_callback, 0, a:exit_code)
 endfunction
 
 
@@ -364,7 +367,9 @@ function! s:ClaudeImplement(line1, line2, instruction) range
 
   " Query Claude
   let l:messages = [{'role': 'user', 'content': a:instruction}]
-  call s:ClaudeQueryInternal(l:messages, l:prompt, function('s:HandleImplementResponse', [a:line1, a:line2, l:bufnr, l:bufname, l:winid, a:instruction]))
+  call s:ClaudeQueryInternal(l:messages, l:prompt,
+        \ function('s:StreamingImplementResponse'),
+        \ function('s:FinalImplementResponse', [a:line1, a:line2, l:bufnr, l:bufname, l:winid, a:instruction]))
 endfunction
 
 function! s:ExtractCodeFromMarkdown(markdown)
@@ -381,31 +386,32 @@ function! s:ExtractCodeFromMarkdown(markdown)
   return join(l:code, "\n")
 endfunction
 
-function! s:HandleImplementResponse(line1, line2, bufnr, bufname, winid, instruction, delta, is_final)
+function! s:StreamingImplementResponse(delta)
   if !exists("s:implement_response")
     let s:implement_response = ""
   endif
 
   let s:implement_response .= a:delta
+endfunction
 
-  if a:is_final
-    call win_gotoid(a:winid)
+function! s:FinalImplementResponse(line1, line2, bufnr, bufname, winid, instruction)
+  call win_gotoid(a:winid)
 
-    call s:LogImplementInChat(a:instruction, s:implement_response, a:bufname, a:line1, a:line2)
+  call s:LogImplementInChat(a:instruction, s:implement_response, a:bufname, a:line1, a:line2)
 
-    let l:implemented_code = s:ExtractCodeFromMarkdown(s:implement_response)
+  let l:implemented_code = s:ExtractCodeFromMarkdown(s:implement_response)
 
-    let l:changes = [{
-      \ 'type': 'content',
-      \ 'normal_command': a:line1 . 'GV' . a:line2 . 'Gc',
-      \ 'content': l:implemented_code
-      \ }]
-    call s:ApplyCodeChangesDiff(a:bufnr, l:changes)
+  let l:changes = [{
+    \ 'type': 'content',
+    \ 'normal_command': a:line1 . 'GV' . a:line2 . 'Gc',
+    \ 'content': l:implemented_code
+    \ }]
+  call s:ApplyCodeChangesDiff(a:bufnr, l:changes)
 
-    echomsg "Apply diff, see :help diffget. Close diff buffer with :q."
+  echomsg "Apply diff, see :help diffget. Close diff buffer with :q."
 
-    unlet s:implement_response
-  endif
+  unlet s:implement_response
+  unlet! s:current_chat_job
 endfunction
 
 " Command for code implementation
@@ -581,7 +587,7 @@ endfunction
 function! s:InitMessage(role, line)
   return {
     \ 'role': a:role,
-    \ 'content': [substitute(a:line, '^' . a:role . '\S*\s*', '', '')],
+    \ 'content': [substitute(a:line, '^\S*\s*', '', '')],
     \ 'tool_use': {},
     \ 'tool_result': {}
   \ }
@@ -701,7 +707,7 @@ function! s:SendChatMessage(prefix)
 
   call append('$', a:prefix . " ")
 
-  let l:job = s:ClaudeQueryInternal(l:messages, l:content_prompt . l:system_prompt, function('s:HandleChatResponse'))
+  let l:job = s:ClaudeQueryInternal(l:messages, l:content_prompt . l:system_prompt, function('s:StreamingChatResponse'), function('s:FinalChatResponse'))
 
   " Store the job ID or channel for potential cancellation
   if has('nvim')
@@ -891,7 +897,7 @@ function! s:PrepareNextInput()
   normal! G$
 endfunction
 
-function! s:HandleChatResponse(delta, is_final)
+function! s:StreamingChatResponse(delta)
   let [l:chat_bufnr, l:chat_winid, l:current_winid] = s:GetOrCreateChatWindow()
   call win_gotoid(l:chat_winid)
 
@@ -908,33 +914,33 @@ function! s:HandleChatResponse(delta, is_final)
 
   normal! G
   call win_gotoid(l:current_winid)
+endfunction
 
-  if a:is_final
-    call win_gotoid(l:chat_winid)
-    let l:tool_uses = s:ResponseExtractToolUses()
+function! s:FinalChatResponse()
+  let [l:chat_bufnr, l:chat_winid, l:current_winid] = s:GetOrCreateChatWindow()
+  let l:tool_uses = s:ResponseExtractToolUses()
 
-    if !empty(l:tool_uses)
-      for l:tool_use in l:tool_uses
-        let l:tool_result = s:ExecuteTool(l:tool_use.name, l:tool_use.input)
-        call s:AppendToolResult(l:tool_use.id, l:tool_result)
+  if !empty(l:tool_uses)
+    for l:tool_use in l:tool_uses
+      let l:tool_result = s:ExecuteTool(l:tool_use.name, l:tool_use.input)
+      call s:AppendToolResult(l:tool_use.id, l:tool_result)
+    endfor
+    call s:SendChatMessage('Claude...:')
+  else
+    let l:all_changes = s:ResponseExtractChanges()
+    call s:ClosePreviousFold()
+    call s:CloseCurrentInteractionCodeBlocks()
+    call s:PrepareNextInput()
+    call win_gotoid(l:current_winid)
+
+    if !empty(l:all_changes)
+      wincmd p
+      for [l:target_bufnr, l:changes] in items(l:all_changes)
+        call s:ApplyCodeChangesDiff(str2nr(l:target_bufnr), l:changes)
       endfor
-      call s:SendChatMessage('Claude...:')
-    else
-      let l:all_changes = s:ResponseExtractChanges()
-      call s:ClosePreviousFold()
-      call s:CloseCurrentInteractionCodeBlocks()
-      call s:PrepareNextInput()
-      call win_gotoid(l:current_winid)
-
-      if !empty(l:all_changes)
-        wincmd p
-        for [l:target_bufnr, l:changes] in items(l:all_changes)
-          call s:ApplyCodeChangesDiff(str2nr(l:target_bufnr), l:changes)
-        endfor
-      endif
     endif
-    unlet! s:current_chat_job
   endif
+  unlet! s:current_chat_job
 endfunction
 
 function! s:CancelClaudeResponse()
