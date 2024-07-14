@@ -53,7 +53,7 @@ endif
 " Claude API
 " ============================================================================
 
-function! s:ClaudeQueryInternal(messages, system_prompt, stream_callback, final_callback)
+function! s:ClaudeQueryInternal(messages, system_prompt, tools, stream_callback, final_callback)
   " Prepare the API request
   let l:data = {}
   let l:headers = []
@@ -78,11 +78,13 @@ function! s:ClaudeQueryInternal(messages, system_prompt, stream_callback, final_
       \ 'model': g:claude_model,
       \ 'max_tokens': 2048,
       \ 'messages': a:messages,
-      \ 'tools': g:claude_tools,
       \ 'stream': v:true
       \ }
     if !empty(a:system_prompt)
       let l:data['system'] = a:system_prompt
+    endif
+    if !empty(a:tools)
+      let l:data['tools'] = a:tools
     endif
     call extend(l:headers, ['-H', 'Content-Type: application/json'])
     call extend(l:headers, ['-H', 'x-api-key: ' . g:claude_api_key])
@@ -367,7 +369,7 @@ function! s:ClaudeImplement(line1, line2, instruction) range
 
   " Query Claude
   let l:messages = [{'role': 'user', 'content': a:instruction}]
-  call s:ClaudeQueryInternal(l:messages, l:prompt,
+  call s:ClaudeQueryInternal(l:messages, l:prompt, [],
         \ function('s:StreamingImplementResponse'),
         \ function('s:FinalImplementResponse', [a:line1, a:line2, l:bufnr, l:bufname, l:winid, a:instruction]))
 endfunction
@@ -707,7 +709,7 @@ function! s:SendChatMessage(prefix)
 
   call append('$', a:prefix . " ")
 
-  let l:job = s:ClaudeQueryInternal(l:messages, l:content_prompt . l:system_prompt, function('s:StreamingChatResponse'), function('s:FinalChatResponse'))
+  let l:job = s:ClaudeQueryInternal(l:messages, l:content_prompt . l:system_prompt, g:claude_tools, function('s:StreamingChatResponse'), function('s:FinalChatResponse'))
 
   " Store the job ID or channel for potential cancellation
   if has('nvim')
