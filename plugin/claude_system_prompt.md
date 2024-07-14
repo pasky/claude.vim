@@ -55,11 +55,12 @@ For complex refactorings or other global changes, you can also execute specific 
 
 ```vimexec buffername
 :%s/example/foobarbaz/g
-... more vim commands ...
+... each line is an individual vim command, executed as `:normal ...` ...
+:... exmode commands start with : ...
 ```
 
 These commands will be executed on the buffer after applying previous code changes, and before applying further code changes.
-Each line should be a global exmode-command, or start with `gg` to go to the top of the buffer first.
+Unless each line is a global exmode-command, you always start with `gg` to go to the top of the buffer first.
 
 ## Decision Guideline
 
