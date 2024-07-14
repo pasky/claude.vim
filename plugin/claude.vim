@@ -62,7 +62,6 @@ function! s:ClaudeQueryInternal(messages, system_prompt, tools, stream_callback,
   if g:claude_use_bedrock
     let l:plugin_dir = expand('<sfile>:p:h')
     let l:python_script = l:plugin_dir . '/plugin/claude_bedrock_helper.py'
-    " TODO tools support
     let l:cmd = ['python3', l:python_script,
           \ '--region', g:claude_bedrock_region,
           \ '--model-id', g:claude_bedrock_model_id,
@@ -71,6 +70,10 @@ function! s:ClaudeQueryInternal(messages, system_prompt, tools, stream_callback,
 
     if !empty(g:claude_aws_profile)
       call extend(l:cmd, ['--profile', g:claude_aws_profile])
+    endif
+
+    if !empty(a:tools)
+      call extend(l:cmd, ['--tools', json_encode(a:tools)])
     endif
   else
     let l:url = g:claude_api_url
