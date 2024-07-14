@@ -58,6 +58,11 @@ cd ~/.config/nvim/pack/pasky/start
 git clone https://github.com/pasky/claude.vim.git
 ```
 
+To allow web access, install elinks or felinks (e.g. `brew install felinks`).
+To allow Google access, you first need to open elinks manually, type `g blabla`
+in the URL bar and select and press one of the buttons in the cookie consent
+(then, quit it using `q`).
+
 ## Configuration
 
 Obtain your Claude API key by signing up at https://console.anthropic.com/ .

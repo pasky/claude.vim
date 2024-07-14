@@ -310,6 +310,20 @@ if !exists('g:claude_tools')
     \     },
     \     "required": ["buffername"]
     \   }
+    \ },
+    \ {
+    \   'name': 'open_web',
+    \   'description': 'Open a new buffer with the text content of a specific webpage. Use this for accessing documentation or other search results.',
+    \   'input_schema': {
+    \     'type': 'object',
+    \     'properties': {
+    \       'url': {
+    \         'type': 'string',
+    \         'description': 'The URL of the webpage to read'
+    \       },
+    \     },
+    \     'required': ['url']
+    \   }
     \ }
   \ ]
 endif
@@ -319,6 +333,8 @@ function! s:ExecuteTool(tool_name, arguments)
     return s:ExecutePythonCode(a:arguments.code)
   elseif a:tool_name == 'new'
     return s:ExecuteNewTool(a:arguments.path)
+  elseif a:tool_name == 'open_web'
+    return s:ExecuteOpenWebTool(a:arguments.url)
   else
     return 'Error: Unknown tool ' . a:tool_name
   endif
@@ -357,6 +373,28 @@ function! s:ExecuteNewTool(path)
     call win_gotoid(l:current_winid)
     return 'ERROR: ' . v:exception
   endtry
+endfunction
+
+function! s:ExecuteOpenWebTool(url)
+  let l:current_winid = win_getid()
+
+  topleft 1new
+  setlocal buftype=nofile
+  setlocal bufhidden=hide
+  setlocal noswapfile
+
+  execute ':r !elinks -dump ' . shellescape(a:url)
+  if v:shell_error
+    close
+    call win_gotoid(l:current_winid)
+    return 'ERROR: Failed to fetch content from ' . a:url
+  endif
+
+  let l:bufname = fnameescape(a:url)
+  execute 'file ' . l:bufname
+
+  call win_gotoid(l:current_winid)
+  return l:bufname
 endfunction
 
 
