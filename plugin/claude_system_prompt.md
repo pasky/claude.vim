@@ -38,7 +38,14 @@ function !s:Example(parameter)
 endfunction
 ```
 
-where the pattern is the function definition line, and it MUST be followed with the /<CR>V][c in this usage.
+where the pattern is the function definition line, and it MUST be followed with the `/<CR>V][c` in this usage.
+
+Another example:
+
+```python code.py:/^def abc(/<CR>V][c
+def abc():
+    print(1)
+```
 
 N.B. You can use any vim key sequence if you are very sure, as long as it deletes any content you are changing and leaves vim in insert mode - e.g. `/^function! s:Example(/<CR>O` will prepend your new code above the specific function. Note that the sequence is executed in normal mode, not exmode. (Use ::/../,/../c etc. for ranged changes, with the double column.)
 
