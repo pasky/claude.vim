@@ -32,9 +32,10 @@ endif
 
 """""""""""""""""""""""""""""""""""""
 
+let s:plugin_dir = expand('<sfile>:p:h')
+
 function! s:ClaudeLoadPrompt(prompt_type)
-  let l:plugin_dir = expand('<sfile>:p:h')
-  let l:prompts_file = l:plugin_dir . '/claude_' . a:prompt_type . '_prompt.md'
+  let l:prompts_file = s:plugin_dir . '/claude_' . a:prompt_type . '_prompt.md'
   return readfile(l:prompts_file)
 endfunction
 
@@ -60,8 +61,7 @@ function! s:ClaudeQueryInternal(messages, system_prompt, tools, stream_callback,
   let l:url = ''
 
   if g:claude_use_bedrock
-    let l:plugin_dir = expand('<sfile>:p:h')
-    let l:python_script = l:plugin_dir . '/plugin/claude_bedrock_helper.py'
+    let l:python_script = s:plugin_dir . '/claude_bedrock_helper.py'
     let l:cmd = ['python3', l:python_script,
           \ '--region', g:claude_bedrock_region,
           \ '--model-id', g:claude_bedrock_model_id,
