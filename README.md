@@ -4,8 +4,13 @@ This vim plugin integrates Claude deeply into your Vim workflow - rather than
 working in the clunky web Claude Chat, actually chat about and hack together
 on your currently opened vim buffers.
 
+**Claude is your pair programmer.**  You chat about what to build or how
+to debug problems, and Claude offers opinions while seeing your actual code,
+or goes ahead and proposes the modifications - high level, or just straight
+writes the code.
+
 This plugin is NOT:
-* for "code completion" like Github Copilot or Codeium.
+* "code completion" like Github Copilot or Codeium.
   (You can use these together with claude.vim!)
   This plugin rather provides a chat / instruction centric interface.
 * CLI coding framework. It is much more optimized for human collaboration than e.g. aider or dravid.
@@ -13,10 +18,7 @@ This plugin is NOT:
   And it is going to need feedback and change review in order to be helpful.
   This is why the access to chat history and the vimdiff interface are the killer features.
 
-**Claude is your pair programmer.**  You chat about what to build or how
-to debug problems, and Claude offers opinions while seeing your actual code,
-or goes ahead and proposes the modifications - high level, or just straight
-writes the code.
+![Chat buffer at the bottom, vimdiff at the top.](https://pbs.twimg.com/media/GSjaG6qXMAAw5fm?format=jpg&name=4096x4096)
 
 This plugin will give you a partner who will one-shot new features in your codebase:
 
@@ -30,12 +32,26 @@ You can ask it to modify or extend just a selected piece of your code:
 
 https://github.com/pasky/claude.vim/assets/18439/71544b57-e87d-4dd4-a7e6-4051fa080d18
 
+It can use Claude Tools interface - it will open files and execute vim commands as needed.
+
+![Claude realizes it needs to open another file, opens it, and then executes a series of vim commands to uppercase its first line.](https://pbs.twimg.com/media/GSjaXLnW8AEuFE_?format=jpg&name=4096x4096)
+
 It can also (with your case-by-case consent) evaluate Python expression when figuring
 out what you asked:
 
 ![When asked for refactoring suggestions, Claude evaluates short Python snippets to get basic source code stats, and even autonomously iterates the Python execution when one of the snippets fails.](https://pbs.twimg.com/media/GSXpOY2WsAI6aFt?format=jpg&name=4096x4096)
 
-Note that about 95% of the code of this plugin has been written by Claude
+And it can execute complex tasks by first reading documentation, then cloning git respositories, browsing the directory tree, etc.
+
+![Based on a short sentence, Claude reads documentation for another software project, clones the repo, installs dependencies etc.](https://pbs.twimg.com/media/GSjasfZXoAAvtKs?format=jpg&name=4096x4096)
+
+----
+
+Sonnet 3.5 is not yet good enough to completely autonomously perform complex tasks.
+This is why you can chat with it, review and reject its changes and tool execution attempts, etc.
+You still do the "hard thinking" and decide and tell it *what* to do.
+
+That said, about 95% of the code of this plugin has been written by Claude
 Sonnet 3.5, and most of the time already "self-hosted" within the plugin.
 
 **NOTE: This is early alpha software.**  It is expected to rapidly evolve...
