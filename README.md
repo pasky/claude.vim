@@ -4,9 +4,14 @@ This vim plugin integrates Claude deeply into your Vim workflow - rather than
 working in the clunky web Claude Chat, actually chat about and hack together
 on your currently opened vim buffers.
 
-This plugin is NOT for "code completion" like Github Copilot or Codeium.
-(You can use these together with claude.vim!)
-This plugin rather provides a chat / instruction centric interface.
+This plugin is NOT:
+* for "code completion" like Github Copilot or Codeium.
+  (You can use these together with claude.vim!)
+  This plugin rather provides a chat / instruction centric interface.
+* CLI coding framework. It is much more optimized for human collaboration than e.g. aider or dravid.
+  You may want to agree on design decisions before Claude writes code.
+  And it is going to need feedback and change review in order to be helpful.
+  This is why the access to chat history and the vimdiff interface are the killer features.
 
 **Claude is your pair programmer.**  You chat about what to build or how
 to debug problems, and Claude offers opinions while seeing your actual code,
@@ -28,7 +33,7 @@ https://github.com/pasky/claude.vim/assets/18439/71544b57-e87d-4dd4-a7e6-4051fa0
 It can also (with your case-by-case consent) evaluate Python expression when figuring
 out what you asked:
 
-https://pbs.twimg.com/media/GSVCJ7pWsAA7Afs?format=png&name=4096x4096
+![When asked for refactoring suggestions, Claude evaluates short Python snippets to get basic source code stats, and even autonomously iterates the Python execution when one of the snippets fails.](https://pbs.twimg.com/media/GSXpOY2WsAI6aFt?format=jpg&name=4096x4096)
 
 Note that about 95% of the code of this plugin has been written by Claude
 Sonnet 3.5, and most of the time already "self-hosted" within the plugin.
