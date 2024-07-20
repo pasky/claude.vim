@@ -304,17 +304,31 @@ if !exists('g:claude_tools')
     \   }
     \ },
     \ {
-    \   "name": "new",
-    \   "description": "Open a new buffer (file, directory or netrw URL) so that you get access to its content. Open ONLY files you do not have available yet. Returns the buffer name, or 'ERROR' for non-existent paths.",
+    \   "name": "open",
+    \   "description": "Open an existing buffer (file, directory or netrw URL) so that you get access to its content. Returns the buffer name, or 'ERROR' for non-existent paths.",
     \   "input_schema": {
     \     "type": "object",
     \     "properties": {
     \       "path": {
     \         "type": "string",
-    \         "description": "The path to open, passed as an argument to the vim :new command"
+    \         "description": "The path to open, passed as an argument to the vim :edit command"
     \       }
     \     },
-    \     "required": ["buffername"]
+    \     "required": ["path"]
+    \   }
+    \ },
+    \ {
+    \   "name": "new",
+    \   "description": "Create a new file, opening a buffer for it so that edits can be applied. Returns an error if the file already exists.",
+    \   "input_schema": {
+    \     "type": "object",
+    \     "properties": {
+    \       "path": {
+    \         "type": "string",
+    \         "description": "The path of the new file to create, passed as an argument to the vim :new command"
+    \       }
+    \     },
+    \     "required": ["path"]
     \   }
     \ },
     \ {
@@ -337,6 +351,8 @@ endif
 function! s:ExecuteTool(tool_name, arguments)
   if a:tool_name == 'python'
     return s:ExecutePythonCode(a:arguments.code)
+  elseif a:tool_name == 'open'
+    return s:ExecuteOpenTool(a:arguments.path)
   elseif a:tool_name == 'new'
     return s:ExecuteNewTool(a:arguments.path)
   elseif a:tool_name == 'open_web'
@@ -357,7 +373,7 @@ function! s:ExecutePythonCode(code)
   endif
 endfunction
 
-function! s:ExecuteNewTool(path)
+function! s:ExecuteOpenTool(path)
   let l:current_winid = win_getid()
 
   topleft 1new
@@ -379,6 +395,21 @@ function! s:ExecuteNewTool(path)
     call win_gotoid(l:current_winid)
     return 'ERROR: ' . v:exception
   endtry
+endfunction
+
+function! s:ExecuteNewTool(path)
+  if filereadable(a:path)
+    return 'ERROR: File already exists: ' . a:path
+  endif
+
+  let l:current_winid = win_getid()
+
+  topleft 1new
+  execute 'silent write ' . fnameescape(a:path)
+  let l:bufname = bufname('%')
+
+  call win_gotoid(l:current_winid)
+  return l:bufname
 endfunction
 
 function! s:ExecuteOpenWebTool(url)
