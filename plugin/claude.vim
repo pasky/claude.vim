@@ -682,11 +682,15 @@ function! s:InitMessage(role, line)
 endfunction
 
 function! s:ParseToolUse(line)
-  let l:match = matchlist(a:line, '^Tool use (\(.*\)):')
+  let l:match = matchlist(a:line, '^Tool use (\(.*\)): \(.*\)$')
+  if empty(l:match)
+    return {}
+  endif
+
   return {
     \ 'type': 'tool_use',
     \ 'id': l:match[1],
-    \ 'name': '',
+    \ 'name': l:match[2],
     \ 'input': {}
   \ }
 endfunction
@@ -708,10 +712,13 @@ endfunction
 function! s:AppendContent(message, line)
   let l:indent = s:GetClaudeIndent()
   if !empty(a:message.tool_use)
-    if a:line =~ '^\s*Name:'
-      let a:message.tool_use.name = substitute(a:line, '^\s*Name:\s*', '', '')
-    elseif a:line =~ '^\s*Input:'
+    if a:line =~ '^\s*Input:'
       let a:message.tool_use.input = json_decode(substitute(a:line, '^\s*Input:\s*', '', ''))
+    elseif a:message.tool_use.name == 'python'
+      if !has_key(a:message.tool_use.input, 'code')
+        let a:message.tool_use.input.code = ''
+      endif
+      let a:message.tool_use.input.code .= (empty(a:message.tool_use.input.code) ? '' : "\n") . substitute(a:line, '^' . l:indent, '', '')
     endif
   elseif !empty(a:message.tool_result)
     let a:message.tool_result.content .= (empty(a:message.tool_result.content) ? '' : "\n") . substitute(a:line, '^' . l:indent, '', '')
@@ -813,40 +820,26 @@ command! ClaudeSend call <SID>SendChatMessage('Claude:')
 " ----- Handling responses: Tool use
 
 function! s:ResponseExtractToolUses()
-  let l:tool_uses = []
-  let l:in_tool_use = 0
-  let l:current_tool_use = {}
-
-  " Find the start of the last Claude block
-  normal! G
-  let l:start_line = search('^Claude', 'b')  " Either Claude: or Claude...:
-
-  " Parse from the start line to the end of the buffer
-  for l:line_num in range(l:start_line, line('$'))
-    let l:line = getline(l:line_num)
-
-    if l:line =~ '^Tool use ('
-      let l:in_tool_use = 1
-      let l:current_tool_use = {'id': substitute(l:line, '^Tool use (\(.*\)):$', '\1', '')}
-    elseif l:in_tool_use
-      if l:line =~ '^\s*Name:'
-        let l:current_tool_use.name = substitute(l:line, '^\s*Name:\s*', '', '')
-      elseif l:line =~ '^\s*Input:'
-        let l:current_tool_use.input = json_decode(substitute(l:line, '^\s*Input:\s*', '', ''))
-        call add(l:tool_uses, l:current_tool_use)
-        let l:in_tool_use = 0
-      endif
-    endif
-  endfor
-
-  return l:tool_uses
+  let [l:messages, l:system_prompt] = s:ParseChatBuffer()
+  if len(l:messages) == 0
+    return []
+  elseif type(l:messages[-1].content) == v:t_list
+    return filter(copy(l:messages[-1].content), 'v:val.type == "tool_use"')
+  else
+    return []
+  endif
 endfunction
 
 function! s:AppendToolUse(tool_call_id, tool_name, tool_input)
   let l:indent = s:GetClaudeIndent()
-  call append('$', 'Tool use (' . a:tool_call_id . '):')
-  call append('$', l:indent . 'Name: ' . a:tool_name)
-  call append('$', l:indent . 'Input: ' . json_encode(a:tool_input))
+  call append('$', 'Tool use (' . a:tool_call_id . '): ' . a:tool_name)
+  if a:tool_name == 'python'
+    for line in split(a:tool_input.code, "\n")
+      call append('$', l:indent . line)
+    endfor
+  else
+    call append('$', l:indent . 'Input: ' . json_encode(a:tool_input))
+  endif
   normal! G
 endfunction
 
