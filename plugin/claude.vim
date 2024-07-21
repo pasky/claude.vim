@@ -364,7 +364,7 @@ endfunction
 
 function! s:ExecutePythonCode(code)
   redraw
-  let l:confirm = input("Execute this Python code? (y/n): ")
+  let l:confirm = input("Execute this Python code? (y/n; you can also press C-C to stop now and C-] later to resume)")
   if l:confirm =~? '^y'
     let l:result = system('python3 -c ' . shellescape(a:code))
     return l:result
@@ -823,6 +823,15 @@ endfunction
 function! s:SendChatMessage(prefix)
   let [l:messages, l:system_prompt] = s:ParseChatBuffer()
 
+  let l:tool_uses = s:ResponseExtractToolUses(l:messages)
+  if !empty(l:tool_uses)
+    for l:tool_use in l:tool_uses
+      let l:tool_result = s:ExecuteTool(l:tool_use.name, l:tool_use.input)
+      call s:AppendToolResult(l:tool_use.id, l:tool_result)
+    endfor
+    let [l:messages, l:system_prompt] = s:ParseChatBuffer()
+  endif
+
   let l:buffer_contents = s:GetBuffersContent()
   let l:content_prompt = "# Contents of open buffers\n\n"
   for buffer in l:buffer_contents
@@ -850,12 +859,11 @@ command! ClaudeSend call <SID>SendChatMessage('Claude:')
 
 " ----- Handling responses: Tool use
 
-function! s:ResponseExtractToolUses()
-  let [l:messages, l:system_prompt] = s:ParseChatBuffer()
-  if len(l:messages) == 0
+function! s:ResponseExtractToolUses(messages)
+  if len(a:messages) == 0
     return []
-  elseif type(l:messages[-1].content) == v:t_list
-    return filter(copy(l:messages[-1].content), 'v:val.type == "tool_use"')
+  elseif type(a:messages[-1].content) == v:t_list
+    return filter(copy(a:messages[-1].content), 'v:val.type == "tool_use"')
   else
     return []
   endif
@@ -1033,13 +1041,10 @@ endfunction
 
 function! s:FinalChatResponse()
   let [l:chat_bufnr, l:chat_winid, l:current_winid] = s:GetOrCreateChatWindow()
-  let l:tool_uses = s:ResponseExtractToolUses()
+  let [l:messages, l:system_prompt] = s:ParseChatBuffer()
+  let l:tool_uses = s:ResponseExtractToolUses(l:messages)
 
   if !empty(l:tool_uses)
-    for l:tool_use in l:tool_uses
-      let l:tool_result = s:ExecuteTool(l:tool_use.name, l:tool_use.input)
-      call s:AppendToolResult(l:tool_use.id, l:tool_result)
-    endfor
     call s:SendChatMessage('Claude...:')
   else
     let l:all_changes = s:ResponseExtractChanges()
