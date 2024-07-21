@@ -364,7 +364,7 @@ endfunction
 
 function! s:ExecutePythonCode(code)
   redraw
-  let l:confirm = input("Execute this Python code? (y/n; you can also press C-C to stop now and C-] later to resume)")
+  let l:confirm = input("Execute this Python code? (y/n/C-C; if you C-C to stop now, you can C-] later to resume) ")
   if l:confirm =~? '^y'
     let l:result = system('python3 -c ' . shellescape(a:code))
     return l:result
