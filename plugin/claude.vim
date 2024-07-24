@@ -893,7 +893,7 @@ endfunction
 " ----- Handling responses: Code changes
 
 function! s:ProcessCodeBlock(block, all_changes)
-  let l:matches = matchlist(a:block.header, '^\(\S\+\)\%(\s\+\(\S\+\)\%(:\(.*\)\)\?\)\?$')
+  let l:matches = matchlist(a:block.header, '^\(\S\+\)\s\+\([^:]\+\)\%(:\(.*\)\)\?$')
   let l:filetype = get(l:matches, 1, '')
   let l:buffername = get(l:matches, 2, '')
   let l:normal_command = get(l:matches, 3, '')
