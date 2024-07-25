@@ -1076,8 +1076,8 @@ function! s:FinalChatResponse()
         call s:ApplyCodeChangesDiff(str2nr(l:target_bufnr), l:changes)
       endfor
     endif
+    unlet! s:current_chat_job
   endif
-  unlet! s:current_chat_job
 endfunction
 
 function! s:CancelClaudeResponse()
