@@ -1022,6 +1022,15 @@ function! s:ResponseExtractChanges()
   return l:all_changes
 endfunction
 
+function s:ApplyChangesFromResponse()
+  let l:all_changes = s:ResponseExtractChanges()
+  if !empty(l:all_changes)
+    for [l:target_bufnr, l:changes] in items(l:all_changes)
+      call s:ApplyCodeChangesDiff(str2nr(l:target_bufnr), l:changes)
+    endfor
+  endif
+endfunction
+
 
 " ----- Handling responses
 
@@ -1089,21 +1098,15 @@ function! s:FinalChatResponse()
   let [l:messages, l:system_prompt] = s:ParseChatBuffer()
   let l:tool_uses = s:ResponseExtractToolUses(l:messages)
 
+  call s:ApplyChangesFromResponse()
+
   if !empty(l:tool_uses)
     call s:SendChatMessage('Claude...:')
   else
-    let l:all_changes = s:ResponseExtractChanges()
     call s:ClosePreviousFold()
     call s:CloseCurrentInteractionCodeBlocks()
     call s:PrepareNextInput()
     call win_gotoid(l:current_winid)
-
-    if !empty(l:all_changes)
-      wincmd p
-      for [l:target_bufnr, l:changes] in items(l:all_changes)
-        call s:ApplyCodeChangesDiff(str2nr(l:target_bufnr), l:changes)
-      endfor
-    endif
     unlet! s:current_chat_job
   endif
 endfunction
