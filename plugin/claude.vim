@@ -304,6 +304,20 @@ if !exists('g:claude_tools')
     \   }
     \ },
     \ {
+    \   'name': 'shell',
+    \   'description': 'Execute a shell command and return both stdout and stderr. Use with caution as it can potentially run harmful commands.',
+    \   'input_schema': {
+    \     'type': 'object',
+    \     'properties': {
+    \       'command': {
+    \         'type': 'string',
+    \         'description': 'The shell command or a short one-line script to execute.'
+    \       }
+    \     },
+    \     'required': ['command']
+    \   }
+    \ },
+    \ {
     \   "name": "open",
     \   "description": "Open an existing buffer (file, directory or netrw URL) so that you get access to its content. Returns the buffer name, or 'ERROR' for non-existent paths.",
     \   "input_schema": {
@@ -365,6 +379,8 @@ endif
 function! s:ExecuteTool(tool_name, arguments)
   if a:tool_name == 'python'
     return s:ExecutePythonCode(a:arguments.code)
+  elseif a:tool_name == 'shell'
+    return s:ExecuteShellCommand(a:arguments.command)
   elseif a:tool_name == 'open'
     return s:ExecuteOpenTool(a:arguments.path)
   elseif a:tool_name == 'new'
@@ -387,6 +403,18 @@ function! s:ExecutePythonCode(code)
     return l:result
   else
     return "Python code execution cancelled by user."
+  endif
+endfunction
+
+function! s:ExecuteShellCommand(command)
+  redraw
+  let l:confirm = input("Execute this shell command? (y/n/C-C; if you C-C to stop now, you can C-] later to resume) ")
+  if l:confirm =~? '^y'
+    let l:output = system(a:command)
+    let l:exit_status = v:shell_error
+    return l:output . "\nExit status: " . l:exit_status
+  else
+    return "Shell command execution cancelled by user."
   endif
 endfunction
 
