@@ -1029,6 +1029,7 @@ function s:ApplyChangesFromResponse()
       call s:ApplyCodeChangesDiff(str2nr(l:target_bufnr), l:changes)
     endfor
   endif
+  normal! G
 endfunction
 
 
