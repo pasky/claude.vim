@@ -80,9 +80,9 @@ git clone https://github.com/pasky/claude.vim.git
 ```
 
 To allow web access, install elinks or felinks (e.g. `brew install felinks`).
-To allow Google access, you first need to open elinks manually, type `g blabla`
-in the URL bar and select and press one of the buttons in the cookie consent
-(then, quit it using `q`).
+To allow Google access, you first need to open elinks manually, navigate to
+`https://www.google.com/search?q=lala` and select and press one of the buttons
+in the cookie consent (then, quit it using `q`).
 
 ## Configuration
 

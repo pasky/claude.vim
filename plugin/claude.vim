@@ -344,8 +344,22 @@ if !exists('g:claude_tools')
     \     },
     \     'required': ['url']
     \   }
+    \ },
+    \ {
+    \   'name': 'web_search',
+    \   'description': 'Perform a web search and return the top 5 results. Use this to find information beyond your knowledge on the web (e.g. about specific APIs, new tools or to troubleshoot errors). Strongly consider using open_web next to open one or several result URLs to learn more.',
+    \   'input_schema': {
+    \     'type': 'object',
+    \     'properties': {
+    \       'query': {
+    \         'type': 'string',
+    \         'description': 'The search query (bunch of keywords / keyphrases)'
+    \       },
+    \     },
+    \     'required': ['query']
+    \   }
     \ }
-  \ ]
+    \ ]
 endif
 
 function! s:ExecuteTool(tool_name, arguments)
@@ -357,6 +371,9 @@ function! s:ExecuteTool(tool_name, arguments)
     return s:ExecuteNewTool(a:arguments.path)
   elseif a:tool_name == 'open_web'
     return s:ExecuteOpenWebTool(a:arguments.url)
+  elseif a:tool_name == 'web_search'
+    let l:escaped_query = py3eval("''.join([c if c.isalnum() or c in '-._~' else '%{:02X}'.format(ord(c)) for c in vim.eval('a:arguments.query')])")
+    return s:ExecuteOpenWebTool("https://www.google.com/search?q=" . l:escaped_query)
   else
     return 'Error: Unknown tool ' . a:tool_name
   endif
@@ -420,11 +437,11 @@ function! s:ExecuteOpenWebTool(url)
   setlocal bufhidden=hide
   setlocal noswapfile
 
-  execute ':r !elinks -dump ' . shellescape(a:url)
+  execute ':r !elinks -dump ' . escape(shellescape(a:url), '%#!')
   if v:shell_error
     close
     call win_gotoid(l:current_winid)
-    return 'ERROR: Failed to fetch content from ' . a:url
+    return 'ERROR: Failed to fetch content from ' . a:url . ': ' . v:shell_error
   endif
 
   let l:bufname = fnameescape(a:url)
