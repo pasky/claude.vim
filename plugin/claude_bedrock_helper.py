@@ -51,6 +51,10 @@ def convert_from_bedrock_tool_format(bedrock_tool_call):
     }
     return result
 
+def sanitize_text(text):
+    sanitized = text.encode("utf-16", "surrogatepass").decode("utf-16", "ignore")
+    return sanitized
+
 def convert_to_bedrock_format(messages, tools=None):
     bedrock_messages = []
 
@@ -63,7 +67,7 @@ def convert_to_bedrock_format(messages, tools=None):
         bedrock_content = []
         for content_one in content:
             if content_one['type'] == 'text':
-                bedrock_content.append({"text": content_one['text']})
+                bedrock_content.append({"text": sanitize_text(content_one['text'])})
             elif content_one['type'] == 'tool_use':
                 bedrock_content.append({"toolUse": {
                             "toolUseId": content_one["id"],
@@ -73,7 +77,7 @@ def convert_to_bedrock_format(messages, tools=None):
             elif content_one['type'] == 'tool_result':
                 bedrock_content.append({"toolResult": {
                             "toolUseId": content_one["tool_use_id"],
-                            "content": [{"text": content_one["content"]}],
+                            "content": [{"text": sanitize_text(content_one["content"])}],
                         }})
 
         bedrock_messages.append({"role": msg["role"], "content": bedrock_content})
@@ -85,7 +89,7 @@ def invoke_bedrock_model(client, model_id, messages, system_prompt, tools=None):
         request = {
             "modelId": model_id,
             "messages": messages,
-            "system": [{"text": system_prompt}] if system_prompt else None,
+            "system": [{"text": sanitize_text(system_prompt)}] if system_prompt else None,
             "inferenceConfig": {
                 "temperature": 0.7,
                 "maxTokens": 2048,
