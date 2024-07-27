@@ -45,6 +45,14 @@ And it can execute complex tasks by first reading documentation, then cloning gi
 
 ![Based on a short sentence, Claude reads documentation for another software project, clones the repo, installs dependencies etc.](https://pbs.twimg.com/media/GSjasfZXoAAvtKs?format=jpg&name=4096x4096)
 
+Actually, the current version can execute also shell script. And it can help you also with sysadmin tasks, not just coding.
+
+![Claude is asked to diagnose a RAID1 after disk replacement, so it just runs the appropriate commands using the shell tool.](https://pbs.twimg.com/media/GTc9x4nWoAAZK0M?format=jpg&name=4096x4096)
+
+And ultimately, Claude.vim can act as pretty much a full text terminal replacement of Claude.ai or ChatGPT. And it will search the web if it doesn't know something.
+
+![Claude is asked for a simple medical advice. It searches the web for the germ, then summarizes the results.](https://pbs.twimg.com/media/GTWwKLPWIAAEPub?format=jpg&name=medium)
+
 ----
 
 Sonnet 3.5 is not yet good enough to completely autonomously perform complex tasks.
