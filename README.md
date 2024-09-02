@@ -4,16 +4,17 @@ This vim plugin integrates Claude deeply into your Vim workflow - rather than
 working in the clunky web Claude Chat, actually chat about and hack together
 on your currently opened vim buffers.
 
-**Claude is your pair programmer.**  You chat about what to build or how
+**Claude is your pair programmer.** You chat about what to build or how
 to debug problems, and Claude offers opinions while seeing your actual code,
 or goes ahead and proposes the modifications - high level, or just straight
 writes the code.
 
 This plugin is NOT:
-* "code completion" like Github Copilot or Codeium.
+
+- "code completion" like Github Copilot or Codeium.
   (You can use these together with claude.vim!)
   This plugin rather provides a chat / instruction centric interface.
-* CLI coding framework. It is much more optimized for human collaboration than e.g. aider or dravid.
+- CLI coding framework. It is much more optimized for human collaboration than e.g. aider or dravid.
   You may want to agree on design decisions before Claude writes code.
   And it is going to need feedback and change review in order to be helpful.
   This is why the access to chat history and the vimdiff interface are the killer features.
@@ -53,17 +54,17 @@ And ultimately, Claude.vim can act as pretty much a full text terminal replaceme
 
 ![Claude is asked for a simple medical advice. It searches the web for the germ, then summarizes the results.](https://pbs.twimg.com/media/GTWwKLPWIAAEPub?format=jpg&name=medium)
 
-----
+---
 
 Sonnet 3.5 is not yet good enough to completely autonomously perform complex tasks.
 This is why you can chat with it, review and reject its changes and tool execution attempts, etc.
-You still do the "hard thinking" and decide and tell it *what* to do.
+You still do the "hard thinking" and decide and tell it _what_ to do.
 
 That said, about 95% of the code of this plugin has been written by Claude
 Sonnet 3.5, and most of the time already "self-hosted" within the plugin.
 
-**NOTE: This is early alpha software.**  It is expected to rapidly evolve...
-and not just in backwards compatible way.  Stay in touch with the maintainer
+**NOTE: This is early alpha software.** It is expected to rapidly evolve...
+and not just in backwards compatible way. Stay in touch with the maintainer
 if you are using it (`pasky` on libera IRC, or @xpasky on Twitter / X, or just
 via github issues or PRs).
 
@@ -108,17 +109,31 @@ Set your Claude API key in your .vimrc:
 let g:claude_api_key = 'your_api_key_here'
 ```
 
+Or (recommended) you can store your API key in 1Password. After installing 1Password's cli tool, you can also add the following to your Lazy config, which will tell the claude plugin to pull your Claude API key from you 1Password store. This is more secure than storing your API key in a config file directly.
+
+```
+return {
+  "pasky/claude.vim",
+  config = function()
+    vim.g.claude_api_key_command = "op read op://personal/Claude/credential --no-newline"
+  end,
+}
+
+```
+
 (You can also use AWS Bedrock as your Claude provider instead - in that case, set `let g:claude_use_bedrock = 1` instead.)
 
 ## Usage
 
 First, a couple of vim concepts you should be roughly familiar with:
+
 - Switching between windows (`:help windows`) - at least `<C-W><C-W>` to cycle between active windows
 - Diff mode (`:help diff`) - at least `d` `o` to accept the change under cursor
 - Folds (`:help folding`) - at least `z` `o` to open a fold (chat interaction) and `z` `c` to close it
 - Leader (`:help leader`) - if you are unsure, most likely `\` is the key to press whenever `<Leader>` is mentioned (but on new keyboards, `§` or `±` might be a nice leader to set)
 
 Claude.vim currently offers two main interaction modes:
+
 1. Simple implementation assistant
 2. Chat interface
 
@@ -137,7 +152,7 @@ way; Claude proposes the change and lets you review and accept it.
 
 ### ClaudeChat
 
-In this mode, you chat with Claude.  You can chat about anything, really,
+In this mode, you chat with Claude. You can chat about anything, really,
 but the twist is that Claude also sees the full content of all your buffers
 (listed in `:buffers` - _roughly_ any files you currently have open in your vim).
 
@@ -162,10 +177,10 @@ to propose implementation of even fairly complex new functionality. For example:
 
 Previous interactions are automatically folded for easy orientation (Claude can
 be a tad bit verbose), but the chat history is also visible to Claude when
-asking it something.  However, you can simply edit the buffer to arbitrarily
+asking it something. However, you can simply edit the buffer to arbitrarily
 redact the history (or just delete it).
 
 **NOTE: For every single Claude Q&A roundtrip, full chat history and full
-content of all buffers is sent.  This can consume tokens FAST.  (Even if it
+content of all buffers is sent. This can consume tokens FAST. (Even if it
 is not too expensive, remember that Claude also imposes a total daily token
 limit.) Prune your chat history regularly.**
