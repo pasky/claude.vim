@@ -110,15 +110,26 @@ let g:claude_api_key = 'your_api_key_here'
 
 (You can also use AWS Bedrock as your Claude provider instead - in that case, set `let g:claude_use_bedrock = 1` instead.)
 
+You can edit the keybindings as follows:
+
+```vim
+let g:claude_implement_keybinding = "<Leader>ci"
+let g:claude_open_chat_keybinding = "<Leader>cc"
+let g:claude_send_chat_message_keybinding = "<C-]>"
+let g:claude_cancel_response_keybinding = "<Leader>cx"
+```
+
 ## Usage
 
 First, a couple of vim concepts you should be roughly familiar with:
+
 - Switching between windows (`:help windows`) - at least `<C-W><C-W>` to cycle between active windows
 - Diff mode (`:help diff`) - at least `d` `o` to accept the change under cursor
 - Folds (`:help folding`) - at least `z` `o` to open a fold (chat interaction) and `z` `c` to close it
 - Leader (`:help leader`) - if you are unsure, most likely `\` is the key to press whenever `<Leader>` is mentioned (but on new keyboards, `§` or `±` might be a nice leader to set)
 
 Claude.vim currently offers two main interaction modes:
+
 1. Simple implementation assistant
 2. Chat interface
 
