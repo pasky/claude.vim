@@ -30,20 +30,20 @@ if !exists('g:claude_aws_profile')
   let g:claude_aws_profile = ''
 endif
 
-if !exists('g:claude_implement_keybinding')
-  let g:claude_implement_keybinding = '<leader>ci'
+if !exists('g:claude_map_implement')
+  let g:claude_map_implement = '<leader>ci'
 endif
 
-if !exists('g:claude_open_chat_keybinding')
-  let g:claude_open_chat_keybinding = '<leader>cc'
+if !exists('g:claude_map_open_chat')
+  let g:claude_map_open_chat = '<leader>cc'
 endif
 
-if !exists('g:claude_send_chat_message_keybinding')
-  let g:claude_send_chat_message_keybinding = '<C-]>'
+if !exists('g:claude_map_send_chat_message')
+  let g:claude_map_send_chat_message = '<C-]>'
 endif
 
-if !exists('g:claude_cancel_response_keybinding')
-  let g:claude_cancel_response_keybinding = '<leader>cx'
+if !exists('g:claude_map_cancel_response')
+  let g:claude_map_cancel_response = '<leader>cx'
 endif
 
 " ============================================================================
@@ -53,13 +53,13 @@ endif
 function! s:SetupClaudeKeybindings()
 
   command! -range -nargs=1 ClaudeImplement <line1>,<line2>call s:ClaudeImplement(<line1>, <line2>, <q-args>)
-  execute "vnoremap " . g:claude_implement_keybinding . " :ClaudeImplement<Space>"
+  execute "vnoremap " . g:claude_map_implement . " :ClaudeImplement<Space>"
 
   command! ClaudeChat call s:OpenClaudeChat()
-  execute "nnoremap " . g:claude_open_chat_keybinding . " :ClaudeChat<CR>"
+  execute "nnoremap " . g:claude_map_open_chat . " :ClaudeChat<CR>"
 
   command! ClaudeCancel call s:CancelClaudeResponse()
-  execute "nnoremap " . g:claude_cancel_response_keybinding . " :ClaudeCancel<CR>"
+  execute "nnoremap " . g:claude_map_cancel_response . " :ClaudeCancel<CR>"
 endfunction
 
 augroup ClaudeKeybindings
@@ -747,8 +747,8 @@ function! s:OpenClaudeChat()
 
     " Add mappings for this buffer
     command! -buffer -nargs=1 SendChatMessage call s:SendChatMessage(<q-args>)
-    execute "inoremap <buffer> " . g:claude_send_chat_message_keybinding . " <Esc>:call <SID>SendChatMessage('Claude:')<CR>"
-    execute "nnoremap <buffer> " . g:claude_send_chat_message_keybinding . " :call <SID>SendChatMessage('Claude:')<CR>"
+    execute "inoremap <buffer> " . g:claude_map_send_chat_message . " <Esc>:call <SID>SendChatMessage('Claude:')<CR>"
+    execute "nnoremap <buffer> " . g:claude_map_send_chat_message . " :call <SID>SendChatMessage('Claude:')<CR>"
   else
     let l:claude_winid = bufwinid(l:claude_bufnr)
     if l:claude_winid == -1
