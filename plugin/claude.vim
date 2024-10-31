@@ -209,7 +209,7 @@ endfunction
 function! s:HandleJobErrorNvim(stream_callback, final_callback, job_id, data, event) dict
   for l:msg in a:data
     if l:msg != ''
-      call s:HandleJobError(a:stream_callback, a:final_callback, 0, l:msg, v:true)
+      call s:HandleJobError(a:stream_callback, a:final_callback, 0, l:msg)
     endif
   endfor
 endfunction
