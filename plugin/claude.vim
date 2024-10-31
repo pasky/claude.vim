@@ -6,6 +6,10 @@ if !exists('g:claude_api_key')
   let g:claude_api_key = ''
 endif
 
+if !exists('g:claude_api_key_command')
+  let g:claude_api_key_command = ''
+endif
+
 if !exists('g:claude_api_url')
   let g:claude_api_url = 'https://api.anthropic.com/v1/messages'
 endif
@@ -29,6 +33,64 @@ endif
 if !exists('g:claude_aws_profile')
   let g:claude_aws_profile = ''
 endif
+
+
+function! claude#setup(config)
+  if has_key(a:config, 'api_key')
+    let g:claude_api_key = a:config.api_key
+  endif
+  
+  if has_key(a:config, 'api_key_command')
+    let g:claude_api_key_command = a:config.api_key_command
+  endif
+  
+  if has_key(a:config, 'api_url')
+    let g:claude_api_url = a:config.api_url
+  endif
+  
+  if has_key(a:config, 'model')
+    let g:claude_model = a:config.model
+  endif
+  
+  " ... [other configuration options] ...
+endfunction
+
+function! claude#setup_from_lua(config_string)
+  let l:config = json_decode(a:config_string)
+  call claude#setup(l:config)
+endfunction
+
+" Function to retrieve API key
+let s:cached_claude_api_key = ''
+
+function! s:GetClaudeAPIKey()
+  if !empty(s:cached_claude_api_key)
+    return s:cached_claude_api_key
+  endif
+
+  if !empty(g:claude_api_key)
+    let s:cached_claude_api_key = g:claude_api_key
+  elseif !empty(g:claude_api_key_command)
+    let l:api_key = system(g:claude_api_key_command)
+    let s:cached_claude_api_key = substitute(l:api_key, '\n\+$', '', '')  " Remove trailing newlines
+  else
+    echoerr "Claude API key not set. Please set g:claude_api_key or g:claude_api_key_command."
+    return ''
+  endif
+
+  return s:cached_claude_api_key
+endfunction
+
+
+function! claude#setup(...)
+  let l:config = a:0 > 0 ? a:1 : {}
+  if has_key(l:config, 'api_key_command')
+    let g:claude_api_key_command = l:config.api_key_command
+  endif
+  
+  
+  " ... [add other configuration options as needed] ...
+endfunction
 
 """""""""""""""""""""""""""""""""""""
 
@@ -60,6 +122,11 @@ function! s:ClaudeQueryInternal(messages, system_prompt, tools, stream_callback,
   let l:headers = []
   let l:url = ''
 
+  let l:api_key = s:GetClaudeAPIKey()
+  if empty(l:api_key)
+    return
+  endif
+
   if g:claude_use_bedrock
     let l:python_script = s:plugin_dir . '/claude_bedrock_helper.py'
     let l:cmd = ['python3', l:python_script,
@@ -90,7 +157,7 @@ function! s:ClaudeQueryInternal(messages, system_prompt, tools, stream_callback,
       let l:data['tools'] = a:tools
     endif
     call extend(l:headers, ['-H', 'Content-Type: application/json'])
-    call extend(l:headers, ['-H', 'x-api-key: ' . g:claude_api_key])
+    call extend(l:headers, ['-H', 'x-api-key: ' . l:api_key])
     call extend(l:headers, ['-H', 'anthropic-version: 2023-06-01'])
 
     " Convert data to JSON
