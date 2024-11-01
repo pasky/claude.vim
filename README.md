@@ -113,10 +113,10 @@ let g:claude_api_key = 'your_api_key_here'
 You can edit the keybindings as follows:
 
 ```vim
-let g:claude_implement_keybinding = "<Leader>ci"
-let g:claude_open_chat_keybinding = "<Leader>cc"
-let g:claude_send_chat_message_keybinding = "<C-]>"
-let g:claude_cancel_response_keybinding = "<Leader>cx"
+let g:claude_map_implement = "<Leader>ci"
+let g:claude_map_open_chat = "<Leader>cc"
+let g:claude_map_send_chat_message = "<C-]>"
+let g:claude_map_cancel_response = "<Leader>cx"
 ```
 
 ## Usage
