@@ -239,7 +239,7 @@ endfunction
 
 function! s:ApplyCodeChangesDiff(bufnr, changes)
   let l:original_winid = win_getid()
-  let l:original_bufnr = bufnr('%')
+  let l:failed_edits = []
 
   " Find or create a window for the target buffer
   let l:target_winid = bufwinid(a:bufnr)
@@ -263,13 +263,20 @@ function! s:ApplyCodeChangesDiff(bufnr, changes)
 
   " Apply all changes
   for change in a:changes
-    if change.type == 'content'
-      call s:ApplyChange(change.normal_command, change.content)
-    elseif change.type == 'vimexec'
-      for cmd in change.commands
-        execute 'normal ' . cmd
-      endfor
-    endif
+    try
+      if change.type == 'content'
+        call s:ApplyChange(change.normal_command, change.content)
+      elseif change.type == 'vimexec'
+        for cmd in change.commands
+          execute 'normal ' . cmd
+        endfor
+      endif
+    catch
+      call add(l:failed_edits, change)
+      echohl WarningMsg
+      echomsg "Failed to apply edit in buffer " . bufname(a:bufnr) . ": " . v:exception
+      echohl None
+    endtry
   endfor
 
   " Set up diff for both windows
@@ -279,6 +286,12 @@ function! s:ApplyCodeChangesDiff(bufnr, changes)
 
   " Return to the original window
   call win_gotoid(l:original_winid)
+
+  if !empty(l:failed_edits)
+    echohl WarningMsg
+    echomsg "Some edits could not be applied. Check the messages for details."
+    echohl None
+  endif
 endfunction
 
 
