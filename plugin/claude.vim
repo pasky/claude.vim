@@ -30,6 +30,43 @@ if !exists('g:claude_aws_profile')
   let g:claude_aws_profile = ''
 endif
 
+if !exists('g:claude_map_implement')
+  let g:claude_map_implement = '<leader>ci'
+endif
+
+if !exists('g:claude_map_open_chat')
+  let g:claude_map_open_chat = '<leader>cc'
+endif
+
+if !exists('g:claude_map_send_chat_message')
+  let g:claude_map_send_chat_message = '<C-]>'
+endif
+
+if !exists('g:claude_map_cancel_response')
+  let g:claude_map_cancel_response = '<leader>cx'
+endif
+
+" ============================================================================
+" Keybindings setup
+" ============================================================================
+
+function! s:SetupClaudeKeybindings()
+
+  command! -range -nargs=1 ClaudeImplement <line1>,<line2>call s:ClaudeImplement(<line1>, <line2>, <q-args>)
+  execute "vnoremap " . g:claude_map_implement . " :ClaudeImplement<Space>"
+
+  command! ClaudeChat call s:OpenClaudeChat()
+  execute "nnoremap " . g:claude_map_open_chat . " :ClaudeChat<CR>"
+
+  command! ClaudeCancel call s:CancelClaudeResponse()
+  execute "nnoremap " . g:claude_map_cancel_response . " :ClaudeCancel<CR>"
+endfunction
+
+augroup ClaudeKeybindings
+  autocmd!
+  autocmd VimEnter * call s:SetupClaudeKeybindings()
+augroup END
+
 """""""""""""""""""""""""""""""""""""
 
 let s:plugin_dir = expand('<sfile>:p:h')
@@ -578,10 +615,6 @@ function! s:FinalImplementResponse(line1, line2, bufnr, bufname, winid, instruct
   unlet! s:current_chat_job
 endfunction
 
-" Command for code implementation
-command! -range -nargs=1 ClaudeImplement <line1>,<line2>call s:ClaudeImplement(<line1>, <line2>, <q-args>)
-vnoremap <Leader>ci :ClaudeImplement<Space>
-
 
 
 " ============================================================================
@@ -713,8 +746,9 @@ function! s:OpenClaudeChat()
     augroup END
 
     " Add mappings for this buffer
-    inoremap <buffer> <C-]> <Esc>:call <SID>SendChatMessage('Claude:')<CR>
-    nnoremap <buffer> <C-]> :call <SID>SendChatMessage('Claude:')<CR>
+    command! -buffer -nargs=1 SendChatMessage call s:SendChatMessage(<q-args>)
+    execute "inoremap <buffer> " . g:claude_map_send_chat_message . " <Esc>:call <SID>SendChatMessage('Claude:')<CR>"
+    execute "nnoremap <buffer> " . g:claude_map_send_chat_message . " :call <SID>SendChatMessage('Claude:')<CR>"
   else
     let l:claude_winid = bufwinid(l:claude_bufnr)
     if l:claude_winid == -1
@@ -726,10 +760,6 @@ function! s:OpenClaudeChat()
   endif
   call s:GoToLastYouLine()
 endfunction
-
-" Command to open Claude chat
-command! ClaudeChat call s:OpenClaudeChat()
-nnoremap <Leader>cc :ClaudeChat<CR>
 
 
 " ----- Chat parser (to messages list)
@@ -1129,6 +1159,3 @@ function! s:CancelClaudeResponse()
     echo "No ongoing Claude response to cancel."
   endif
 endfunction
-
-command! ClaudeCancel call s:CancelClaudeResponse()
-nnoremap <Leader>cx :ClaudeCancel<CR>
