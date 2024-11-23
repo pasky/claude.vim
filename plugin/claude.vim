@@ -305,7 +305,11 @@ function! s:ApplyCodeChangesDiff(bufnr, changes)
         call s:ApplyChange(change.normal_command, change.content)
       elseif change.type == 'vimexec'
         for cmd in change.commands
-          execute 'normal ' . cmd
+          try
+            execute 'normal ' . cmd
+          catch
+            execute cmd
+          endtry
         endfor
       endif
     catch
