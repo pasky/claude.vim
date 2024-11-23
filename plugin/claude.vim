@@ -1,6 +1,13 @@
 " File: plugin/claude.vim
 " vim: sw=2 ts=2 et
 
+augroup claude
+    autocmd!
+    let s:plugin_dir = expand('<sfile>:p:h:h')
+    let cmd = printf('source %s/%s', s:plugin_dir, 'autoload/claude.vim')
+    autocmd BufEnter * exec cmd
+augroup END
+
 " Configuration variables
 if !exists('g:claude_api_key')
   let g:claude_api_key = ''
@@ -128,7 +135,8 @@ function! s:ClaudeQueryInternal(messages, system_prompt, tools, stream_callback,
     endif
     call extend(l:headers, ['-H', 'Content-Type: application/json'])
     call extend(l:headers, ['-H', 'x-api-key: ' . g:claude_api_key])
-    call extend(l:headers, ['-H', 'anthropic-version: 2023-06-01'])
+    call extend(l:headers, ['-H', "Authorization: 'Bearer " . g:claude_api_key . '"'])
+    " call extend(l:headers, ['-H', 'anthropic-version: 2023-06-01'])
 
     " Convert data to JSON
     let l:json_data = json_encode(l:data)
