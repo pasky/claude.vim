@@ -30,6 +30,10 @@ if !exists('g:claude_aws_profile')
   let g:claude_aws_profile = ''
 endif
 
+if !exists('g:claude_only_send_marked_buffers')
+  let g:claude_only_send_marked_buffers = 0
+endif
+
 if !exists('g:claude_map_implement')
   let g:claude_map_implement = '<leader>ci'
 endif
@@ -476,6 +480,7 @@ function! s:ExecuteOpenTool(path)
   let l:current_winid = win_getid()
 
   topleft 1new
+  let b:claude_send_this_buffer=1
 
   try
     execute 'edit ' . fnameescape(a:path)
@@ -506,6 +511,7 @@ function! s:ExecuteNewTool(path)
   topleft 1new
   execute 'silent write ' . fnameescape(a:path)
   let l:bufname = bufname('%')
+  let b:claude_send_this_buffer=1
 
   call win_gotoid(l:current_winid)
   return l:bufname
@@ -518,6 +524,7 @@ function! s:ExecuteOpenWebTool(url)
   setlocal buftype=nofile
   setlocal bufhidden=hide
   setlocal noswapfile
+  let b:claude_send_this_buffer=1
 
   execute ':r !elinks -dump ' . escape(shellescape(a:url), '%#!')
   if v:shell_error
@@ -899,11 +906,34 @@ endfunction
 
 
 " ----- Sending messages
+function! s:ShouldSendBuffer(bufnr)
+  if g:claude_only_send_marked_buffers
+    return bufname(a:bufnr) != 'Claude Chat' && getbufvar(a:bufnr, 'claude_send_this_buffer', 0)
+  else
+    return buflisted(a:bufnr) && bufname(a:bufnr) != 'Claude Chat' && !empty(win_findbuf(a:bufnr))
+  endif
+endfunction
+
+" quoted buffer ID to string if numeric
+function! s:int_buf(buf='') 
+	return str2nr(a:buf) ? str2nr(a:buf) : a:buf
+endfunction
+
+
+command! -bar -nargs=? ClaudeMarkBuffer 
+    \ call setbufvar(s:int_buf(<q-args>), 'claude_send_this_buffer', !getbufvar(s:int_buf(<args>),'claude_send_this_buffer',0)) 
+command! -bar -nargs=0 ClaudeOnlySendMarkedBuffers 
+    \ let g:claude_only_send_marked_buffers = !g:claude_only_send_marked_buffers |
+    \ echo "Claude is now sending " . 
+    \ (g:claude_only_send_marked_buffers ? "ALL MARKED" : "ALL VISIBLE") . 
+    \ " buffers."
+command! -bar -nargs=0 ClaudeShowMarkedBuffers
+    \ echo join(filter(range(1, bufnr('$')), "getbufvar(v:val, 'claude_send_this_buffer',0)"), " ")
 
 function! s:GetBuffersContent()
   let l:buffers = []
   for bufnr in range(1, bufnr('$'))
-    if buflisted(bufnr) && bufname(bufnr) != 'Claude Chat' && !empty(win_findbuf(bufnr))
+    if s:ShouldSendBuffer(bufnr)
       let l:bufname = bufname(bufnr)
       let l:contents = join(getbufline(bufnr, 1, '$'), "\n")
       call add(l:buffers, {'name': l:bufname, 'contents': l:contents})
