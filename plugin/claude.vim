@@ -30,6 +30,10 @@ if !exists('g:claude_aws_profile')
   let g:claude_aws_profile = ''
 endif
 
+if !exists('g:claude_only_send_marked_buffers')
+  let g:claude_only_send_marked_buffers = 0
+endif
+
 if !exists('g:claude_map_implement')
   let g:claude_map_implement = '<leader>ci'
 endif
@@ -45,6 +49,7 @@ endif
 if !exists('g:claude_map_cancel_response')
   let g:claude_map_cancel_response = '<leader>cx'
 endif
+
 
 " ============================================================================
 " Keybindings setup
@@ -476,6 +481,7 @@ function! s:ExecuteOpenTool(path)
   let l:current_winid = win_getid()
 
   topleft 1new
+  let b:claude_send_this_buffer=1
 
   try
     execute 'edit ' . fnameescape(a:path)
@@ -506,6 +512,7 @@ function! s:ExecuteNewTool(path)
   topleft 1new
   execute 'silent write ' . fnameescape(a:path)
   let l:bufname = bufname('%')
+  let b:claude_send_this_buffer=1
 
   call win_gotoid(l:current_winid)
   return l:bufname
@@ -518,6 +525,7 @@ function! s:ExecuteOpenWebTool(url)
   setlocal buftype=nofile
   setlocal bufhidden=hide
   setlocal noswapfile
+  let b:claude_send_this_buffer=1
 
   execute ':r !elinks -dump ' . escape(shellescape(a:url), '%#!')
   if v:shell_error
@@ -680,7 +688,7 @@ function! GetChatFold(lnum)
   let l:line = getline(a:lnum)
   let l:prev_level = foldlevel(a:lnum - 1)
 
-  if l:line =~ '^You:' || l:line =~ '^System prompt:'
+  if l:line =~ '^You:' || l:line =~ '^System prompt:' || l:line =~ '^Included buffers \[[0-9]*]:'
     return '>1'  " Start a new fold at level 1
   elseif l:line =~ '^\s' || l:line =~ '^$' || l:line =~ '^.*:'
     if l:line =~ '^\s*```'
@@ -705,7 +713,9 @@ function! s:SetupClaudeChatSyntax()
   syntax include @markdown syntax/markdown.vim
 
   syntax region claudeChatSystem start=/^System prompt:/ end=/^\S/me=s-1 contains=claudeChatSystemKeyword
+  syntax region claudeChatTopStatus start=/^Included buffers \[[0-9]*]:/ end=/^\S/me=s-1 contains=claudeChatIncludedBuffersKeyword
   syntax match claudeChatSystemKeyword /^System prompt:/ contained
+  syntax match claudeChatIncludedBuffersKeyword /^Included buffers \[[0-9]*]:/ contained
   syntax match claudeChatYou /^You:/
   syntax match claudeChatClaude /^Claude\.*:/
   syntax match claudeChatToolUse /^Tool use.*:/
@@ -720,6 +730,8 @@ function! s:SetupClaudeChatSyntax()
 
   highlight default link claudeChatSystem Comment
   highlight default link claudeChatSystemKeyword Keyword
+  highlight default link claudeChatTopStatus Comment
+  highlight default link claudeChatIncludedBuffersKeyword Keyword
   highlight default link claudeChatYou Keyword
   highlight default link claudeChatClaude Keyword
   highlight default link claudeChatToolUse Keyword
@@ -750,16 +762,22 @@ function! s:OpenClaudeChat()
 
     call s:SetupClaudeChatSyntax()
 
-    call setline(1, ['System prompt: ' . g:claude_default_system_prompt[0]])
+    call setline(1, ['Included buffers []: ' ])
+    call append('$', ['System prompt: ' . g:claude_default_system_prompt[0]])
     call append('$', map(g:claude_default_system_prompt[1:], {_, v -> "\t" . v}))
     call append('$', ['Type your messages below, press C-] to send.  (Content of all buffers is shared alongside!)', '', 'You: '])
 
-    " Fold the system prompt
-    normal! 1Gzc
+    call s:ClaudeUpdateStatusRegion()
+
+    " Close all folds
+    normal! zM
 
     augroup ClaudeChat
       autocmd!
       autocmd BufWinEnter <buffer> call s:GoToLastYouLine()
+      autocmd BufWinEnter * call s:ClaudeUpdateStatusRegion()
+      autocmd BufWinLeave * call s:ClaudeUpdateStatusRegion()
+      autocmd WinEnter * call s:ClaudeUpdateStatusRegion() 
     augroup END
 
     " Add mappings for this buffer
@@ -877,11 +895,17 @@ function! s:ParseChatBuffer()
   let l:current_message = {'role': '', 'content': [], 'tool_use': {}, 'tool_result': {}}
   let l:system_prompt = []
   let l:in_system_prompt = 0
+  let l:in_top_status_region = 0
 
   for line in l:buffer_content
-    if line =~ '^System prompt:'
+    if line =~ 'Included buffers \[[0-9]*]:'
+      let l:in_top_status_region = 1
+    elseif line =~ '^System prompt:'
       let l:in_system_prompt = 1
+      let l:in_top_status_region = 0
       let l:system_prompt = [substitute(line, '^System prompt:\s*', '', '')]
+    elseif l:in_top_status_region
+      " Do nothing
     elseif l:in_system_prompt && line =~ '^\s'
       call add(l:system_prompt, substitute(line, '^\s*', '', ''))
     else
@@ -897,17 +921,74 @@ function! s:ParseChatBuffer()
   return [filter(l:messages, {_, v -> !empty(v.content)}), join(l:system_prompt, "\n")]
 endfunction
 
-
 " ----- Sending messages
+function! s:ShouldSendBuffer(bufnr)
+  if g:claude_only_send_marked_buffers
+    return bufname(a:bufnr) != 'Claude Chat' && getbufvar(a:bufnr, 'claude_send_this_buffer', 0)
+  else
+    return buflisted(a:bufnr) && bufname(a:bufnr) != 'Claude Chat' && !empty(win_findbuf(a:bufnr))
+  endif
+endfunction
+
+function! s:GetIncludedBuffers()
+  return filter(range(1,bufnr('$')), {k,v -> s:ShouldSendBuffer(v)})
+endfunction
+
+function! s:ClaudeUpdateStatusRegion()
+  let l:chat_bufnr = bufnr('Claude Chat')
+  if l:chat_bufnr == -1
+    return
+  endif
+
+  let l:buffers = s:GetIncludedBuffers()
+  let l:matches = matchbufline(l:chat_bufnr, "^Included buffers \[[0-9]*]:", 1, "$")
+  let l:status_begin = get(l:matches, 0, {'lnum': 0}).lnum
+  if !l:status_begin
+    return
+  endif
+
+  let l:message = g:claude_only_send_marked_buffers ? "Sending all marked." : "Sending all visible."
+  call setbufline(l:chat_bufnr, l:status_begin, "Included buffers [". len(l:buffers) ."]:  " . message ." Toggle with :ClaudeOnlySendMarkedBuffers")
+
+  let l:matches = matchbufline(l:chat_bufnr, "^\S", l:status_begin, "$") 
+  let l:status_end = get(l:matches, 0, {'lnum': 0}).lnum
+  if !l:status_end
+    return
+  endif
+
+  call deletebufline(l:chat_bufnr, l:status_begin+1, l:status_end-1)
+  call map(l:buffers, {idx, val -> " ∙ " . val . " " . s:buf_displayname(val)})
+  call appendbufline(l:chat_bufnr, l:status_begin, l:buffers)
+
+endfunction
+
+" quoted buffer ID to string if numeric
+function! s:int_buf(buf='') 
+	return str2nr(a:buf) ? str2nr(a:buf) : a:buf
+endfunction
+
+" get name of buffer, but print special names for special buffers
+function! s:buf_displayname(nr)
+	let n = bufname(a:nr)
+	return len(n) ? n : getbufvar(a:nr, '&buftype') == "nofile" ? "[Scratch]" : "[No Name]"
+endfunction
+
+command! -bar -nargs=? ClaudeMarkBuffer 
+    \ call setbufvar(s:int_buf(<q-args>), 'claude_send_this_buffer', !getbufvar(s:int_buf(<args>),'claude_send_this_buffer',0)) |
+    \ call s:ClaudeUpdateStatusRegion()
+command! -bar -nargs=0 ClaudeOnlySendMarkedBuffers 
+    \ let g:claude_only_send_marked_buffers = !g:claude_only_send_marked_buffers |
+    \ call s:ClaudeUpdateStatusRegion() |
+    \ echo "Claude is now sending " . 
+    \ (g:claude_only_send_marked_buffers ? "ALL MARKED" : "ALL VISIBLE") . 
+    \ " buffers."
 
 function! s:GetBuffersContent()
   let l:buffers = []
-  for bufnr in range(1, bufnr('$'))
-    if buflisted(bufnr) && bufname(bufnr) != 'Claude Chat' && !empty(win_findbuf(bufnr))
-      let l:bufname = bufname(bufnr)
-      let l:contents = join(getbufline(bufnr, 1, '$'), "\n")
-      call add(l:buffers, {'name': l:bufname, 'contents': l:contents})
-    endif
+  for bufnr in s:GetIncludedBuffers()
+    let l:bufname = s:buf_displayname(bufnr)
+    let l:contents = join(getbufline(bufnr, 1, '$'), "\n")
+    call add(l:buffers, {'name': l:bufname, 'contents': l:contents})
   endfor
   return l:buffers
 endfunction
