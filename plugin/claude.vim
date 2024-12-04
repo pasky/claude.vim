@@ -98,17 +98,14 @@ endif
 " ============================================================================
 " Claude API
 " ============================================================================
-function! s:StringToContentBlock(s)
-  if type(a:s) == v:t_string
-    return {"type": "text", "text": a:s}
-  else
-    return a:s
-  endif
-endfunction
 
+" {"role": "user", "content":"Hi"} -> {"role":"user", "content":[{"type":"text", "text": "hi"}]
 function! s:InflateMessageContent(msg)
   let result=copy(a:msg)
-  let result.content = [s:StringToContentBlock(get(result, "content",[]))]
+  let content = get(result, "content",[])
+  if type(content) == v:t_string
+    let result.content = [{"type": "text", "text": content}]
+  endif
   return result
 endfunction
 
