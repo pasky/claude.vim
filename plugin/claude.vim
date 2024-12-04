@@ -26,6 +26,14 @@ if !exists('g:claude_bedrock_model_id')
   let g:claude_bedrock_model_id = 'anthropic.claude-3-5-sonnet-20241022-v2:0'
 endif
 	
+if !exists('g:claude_token_usage_categories')
+  let g:claude_token_usage_categories = [
+        \["Input Tokens", "input_tokens", 3.0/1.0E6],
+        \["Output Tokens", "output_tokens", 15.0/1.0E6],
+        \["Cache Create Input Tokens", "cache_creation_input_tokens", 3.75/1.0E6 ],
+        \["Cache Read Input Tokens", "cache_read_input_tokens", 0.3/1.0E6 ]
+        \]
+endif
 if !exists('g:claude_aws_profile')
   let g:claude_aws_profile = ''
 endif
@@ -218,15 +226,8 @@ function! s:ClaudeQueryInternal(messages, buffers, system_prompt, tools, stream_
 endfunction
 
 function! s:DisplayTokenUsageAndCost(input_usage, final_usage)
-  let usage_categories = [
-        \["Input Tokens", "input_tokens", 3.0/1.0E6],
-        \["Output Tokens", "output_tokens", 15.0/1.0E6],
-        \["Cache Create Input Tokens", "cache_creation_input_tokens", 3.75/1.0E6 ],
-        \["Cache Read Input Tokens", "cache_read_input_tokens", 0.3/1.0E6 ]
-        \]
-
   let msg = ["Token usage -"]
-  for cat in usage_categories
+  for cat in g:claude_token_usage_categories
     let label = cat[0]
     let key = cat[1]
     let price = cat[2]
@@ -998,7 +999,7 @@ function! s:SendChatMessage(prefix)
   call append('$', a:prefix . " ")
   normal! G
 
-  let l:job = s:ClaudeQueryInternal(l:messages, l:content_prompt . l:system_prompt, g:claude_tools, function('s:StreamingChatResponse'), function('s:FinalChatResponse'))
+  let l:job = s:ClaudeQueryInternal(l:messages, l:buffer_contents, l:system_prompt, g:claude_tools, function('s:StreamingChatResponse'), function('s:FinalChatResponse'))
 
   " Store the job ID or channel for potential cancellation
   if has('nvim')
