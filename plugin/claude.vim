@@ -19,7 +19,7 @@ if !exists('g:claude_use_bedrock')
 endif
 
 if !exists('g:claude_bedrock_region')
-  let g:claude_bedrock_region = 'us-east-1'
+  let g:claude_bedrock_region = 'us-west-2'
 endif
 
 if !exists('g:claude_bedrock_model_id')
