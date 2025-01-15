@@ -49,7 +49,7 @@ def abc():
 ```
 
 In special circumstances, you can't make a suggestion by rewriting a code function 1:1.
-- This is the only case when you use any vim key sequence, as long as it deletes any content you are changing and leaves vim in insert mode.
+- This is the only case when you use any vim key sequence, as long as it deletes any content you are changing and ends by putting vim in insert mode.
 - For example, you use `/^function! s:Example(/<CR>O` to prepend your new code ABOVE the specific function.
 - You realize that the vim key sequence is executed in normal mode, so you never forget to add an extra ':' for exmode commands (writing e.g. file::/../,/../c etc. for ranged changes).
 
