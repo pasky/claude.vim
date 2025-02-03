@@ -963,6 +963,10 @@ endfunction
 
 function! s:AppendToolUse(tool_call_id, tool_name, tool_input)
   let l:indent = s:GetClaudeIndent()
+  " Ensure there's text content before the first tool use
+  if getline('$') =~# '^Claude\.*: *$'
+    call setline('$', 'Claude...: (tool-only response)')
+  endif
   call append('$', 'Tool use (' . a:tool_call_id . '): ' . a:tool_name)
   if a:tool_name == 'python'
     for line in split(a:tool_input.code, "\n")
