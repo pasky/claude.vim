@@ -69,7 +69,17 @@ via github issues or PRs).
 
 ## Installation
 
-First, install using your favourite package manager, or use Vim's built-in package support.
+vim-plug:
+
+```vim
+" ~/.vimrc
+
+call plug#begin('~/.vim/plugged')
+...
+Plug 'danhab99/claude.vim'
+
+call plug#end()
+```
 
 Vim:
 
