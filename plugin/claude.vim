@@ -60,6 +60,12 @@ function! s:SetupClaudeKeybindings()
 
   command! ClaudeCancel call s:CancelClaudeResponse()
   execute "nnoremap " . g:claude_map_cancel_response . " :ClaudeCancel<CR>"
+
+  command! -nargs=? ClaudeChatSave call s:SaveChat(<q-args>)
+  command! -nargs=1 ClaudeChatLoad call s:LoadChat(<q-args>)
+  command! -nargs=? ClaudeChatList call s:ListChats(<q-args>)
+  command! -nargs=1 ClaudeChatArchive call s:ArchiveChat(<q-args>)
+  command! -nargs=1 ClaudeChatDelete call s:DeleteChat(<q-args>)
 endfunction
 
 augroup ClaudeKeybindings
@@ -1179,4 +1185,155 @@ function! s:CancelClaudeResponse()
   else
     echo "No ongoing Claude response to cancel."
   endif
+endfunction
+
+" ============================================================================
+" Chat persistence
+" ============================================================================
+
+function! s:SaveChat(title)
+  let l:title = empty(a:title) ? input('Chat title: ') : a:title
+  if empty(l:title)
+    echom "Chat save cancelled"
+    return
+  endif
+
+  let [l:messages, l:system_prompt] = s:ParseChatBuffer()
+  
+  " Ensure all message content is stringified before saving
+  let l:processed_messages = []
+  for msg in l:messages
+    let l:msg_copy = copy(msg)
+    if type(l:msg_copy.content) == v:t_list
+      let l:msg_copy.content = json_encode(l:msg_copy.content)
+    endif
+    call add(l:processed_messages, l:msg_copy)
+  endfor
+  
+  let l:json_messages = json_encode(l:processed_messages)
+  
+  let l:cmd = ['python3', s:plugin_dir . '/claude_db.py', 'save',
+        \ '--title', shellescape(l:title),
+		\ '--messages', shellescape(l:json_messages)]
+  
+  let debug_file = expand('~/.vim/debug_claude.txt')
+  call writefile(l:cmd, debug_file, 'a')
+
+  let l:output = system(join(l:cmd, " "))
+  if v:shell_error
+    echohl ErrorMsg
+    echom "Failed to save chat: " . l:output
+    echohl None
+    return
+  endif
+  
+  let l:result = json_decode(l:output)
+  echom "Chat saved with ID " . l:result.chat_id
+endfunction
+
+function! s:LoadChat(chat_id)
+  let l:cmd = ['python3', s:plugin_dir . '/claude_db.py', 'load',
+        \ '--chat-id', a:chat_id]
+  
+  let l:output = system(join(l:cmd, " "))
+  if v:shell_error
+    echohl ErrorMsg
+    echom "Failed to load chat: " . l:output
+    echohl None
+    return
+  endif
+  
+  let l:chat = json_decode(l:output)
+  call s:OpenClaudeChat()
+  
+  " Clear the buffer
+  execute 'normal! ggdG'
+  
+  " Add system prompt
+  call setline(1, 'System prompt: ' . g:claude_default_system_prompt[0])
+  call append('$', map(g:claude_default_system_prompt[1:], {_, v -> "\t" . v}))
+  
+  " Add chat messages
+  for msg in l:chat.messages
+    let l:content = type(msg.content) == v:t_string ? 
+          \ (msg.content[0] ==# '{' ? json_decode(msg.content) : msg.content) :
+          \ msg.content
+    
+    if msg.role ==# 'user'
+      call append('$', 'You: ' . l:content)
+    else
+      call s:AppendResponse(l:content)
+    endif
+  endfor
+  
+  call s:PrepareNextInput()
+  echom "Loaded chat " . a:chat_id . ": " . l:chat.title
+endfunction
+
+function! s:ListChats(args)
+  let l:cmd = ['python3', s:plugin_dir . '/claude_db.py', 'list']
+  if a:args ==# '--archived'
+    let l:cmd += ['--include-archived']
+  endif
+  
+  let l:output = system(join(l:cmd, " "))
+  if v:shell_error
+    echohl ErrorMsg
+    echom "Failed to list chats: " . l:output
+    echohl None
+    return
+  endif
+  
+  let l:result = json_decode(l:output)
+  if empty(l:result.chats)
+    echom "No chats found"
+    return
+  endif
+  
+  echo "Chat ID | Title                 | Created At           | Status"
+  echo "--------|----------------------|--------------------|---------"
+  for chat in l:result.chats
+    let l:status = empty(chat.archived_at) ? 'Active' : 'Archived'
+    echo printf("%-8d| %-20s | %-18s | %s",
+          \ chat.id,
+          \ chat.title,
+          \ split(chat.created_at, '\.')[0],
+          \ l:status)
+  endfor
+endfunction
+
+function! s:ArchiveChat(chat_id)
+  let l:cmd = ['python3', s:plugin_dir . '/claude_db.py', 'archive',
+        \ '--chat-id', a:chat_id]
+  
+  let l:output = system(join(l:cmd, " "))
+  if v:shell_error
+    echohl ErrorMsg
+    echom "Failed to archive chat: " . l:output
+    echohl None
+    return
+  endif
+  
+  echom "Chat " . a:chat_id . " archived"
+endfunction
+
+function! s:DeleteChat(chat_id)
+  let l:confirm = input('Really delete chat ' . a:chat_id . '? (y/N) ')
+  if l:confirm !~? '^y'
+    echom "Chat deletion cancelled"
+    return
+  endif
+  
+  let l:cmd = ['python3', s:plugin_dir . '/claude_db.py', 'delete',
+        \ '--chat-id', a:chat_id]
+  
+  let l:output = system(join(l:cmd, " "))
+  if v:shell_error
+    echohl ErrorMsg
+    echom "Failed to delete chat: " . l:output
+    echohl None
+    return
+  endif
+  
+  echom "Chat " . a:chat_id . " deleted"
 endfunction
