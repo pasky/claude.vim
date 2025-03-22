@@ -9,12 +9,29 @@ from pathlib import Path
 
 def get_db_path():
     import os
-    xdg_data = Path.home() / ".local/share"
-    if "XDG_DATA_HOME" in os.environ:
-        xdg_data = Path(os.environ["XDG_DATA_HOME"])
-    db_dir = xdg_data / "claude-vim"
-    db_dir.mkdir(parents=True, exist_ok=True)
-    return db_dir / "chats.db"
+    import platform
+
+    app_name = "claude-vim"
+
+    # Get system-specific app data directory
+    system = platform.system()
+    if system == "Windows":
+        # Use %LOCALAPPDATA% (typically C:\Users\<username>\AppData\Local)
+        base_dir = os.getenv("LOCALAPPDATA")
+        if not base_dir:
+            base_dir = os.path.expanduser("~\\AppData\\Local")
+        data_dir = Path(base_dir) / app_name
+    elif system == "Darwin":  # macOS
+        # Use ~/Library/Application Support
+        data_dir = Path.home() / "Library" / "Application Support" / app_name
+    else:  # Linux and other Unix-like systems
+        # Use XDG_DATA_HOME or ~/.local/share
+        xdg_data = os.getenv("XDG_DATA_HOME", str(Path.home() / ".local/share"))
+        data_dir = Path(xdg_data) / app_name
+
+    # Create directory if it doesn't exist
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return data_dir / "chats.db"
 
 def init_db(conn):
     conn.executescript("""
