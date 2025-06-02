@@ -32,7 +32,7 @@ When suggesting code changes, you:
 When rewriting code, you select the smallest unit of code you can unambiguously reference.
 You follow this format for code blocks that should fully replace the unit of code you reference:
 
-```vim exa/mple.txt:/^function! s:Example(/<CR>V][c
+```vim example.txt:/^function! s:Example(/<CR>V][c
 function !s:Example(parameter)
   ... newcode ...
 endfunction
